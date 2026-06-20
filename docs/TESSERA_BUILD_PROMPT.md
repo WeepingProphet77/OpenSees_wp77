@@ -1,7 +1,7 @@
 # Tessera — Precast Concrete Design Application
 ## Master Build Prompt / Specification
 
-> **Status:** Draft v0.2 — collaborative specification, prepared before implementation.
+> **Status:** Draft v0.3 — collaborative specification, prepared before implementation.
 > **Audience:** The engineer-owner and any AI/human implementer building Tessera.
 > **One-line goal:** An attractive, browser-based, internal-use precast concrete design tool
 > that uses a forked OpenSees as its FEA engine and the Devalapura–Tadros / PCI **power
@@ -27,8 +27,16 @@ explicit and consistent at all times.
   local in the browser** (no private-Pages plan) (§2.3).
 - **DXF reinforcement:** **no layer-name parsing.** DXF `POINT`s create **generic reinforcement
   placeholders**; the user assigns type/size/grade/prestress afterward via in-app dialogs (§7).
+- **Engine language:** the JS power-formula engine is **ported to TypeScript**, preserving its
+  test suite (§3).
+- **UI library:** **Tailwind CSS + shadcn/ui** (§3).
+- **Prestress losses (v1):** **PCI lump-sum** method; refined time-step deferred (§6).
+- **Column P‑M‑M:** extend the biaxial sweep to include **applied axial load N** for the true
+  interaction surface (§6).
+- **Floor composite topping:** **included in v1** — composite (precast + cast-in-place topping)
+  behavior with staged/transformed-section analysis (§5, §6).
 
-Items still open are in §14.
+All v0.x open decisions are now resolved; §14 is a decision log.
 
 ---
 
@@ -109,7 +117,7 @@ the WASM engine is complete.
 
 ---
 
-## 3. Technology stack (recommended defaults)
+## 3. Technology stack (decided)
 
 - **Framework:** React 18 + **TypeScript**, built with **Vite** (matches the existing app's
   Vite/Vitest setup; existing engine is JS and is **ported to TS** preserving its test suite).
@@ -122,8 +130,8 @@ the WASM engine is complete.
   deformed shape, force diagrams).
 - **DXF:** adopt the existing `dxfParser.js` / `dxfGeometry.js`; extend per §7.
 - **Reporting:** adopt/extend `generatePdfReport.js` (calc package output).
-- **Styling/UI:** **Tailwind CSS + shadcn/ui** (or equivalent) for a polished, consistent,
-  accessible interface. Use the `artifact-design` design process for the visual system.
+- **Styling/UI:** **Tailwind CSS + shadcn/ui** for a polished, consistent, accessible
+  interface. Use the `artifact-design` design process for the visual system.
 - **Testing:** **Vitest** (unit, engine parity) + **Playwright** (e2e flows: import → design →
   save/load). Keep and grow the ported engine tests.
 - **FEA worker:** dedicated Web Worker hosting the OpenSees-WASM module behind the `FeaEngine`
@@ -168,9 +176,11 @@ and how (if at all) it maps to an OpenSees frame model.
 1. **Precast beam** — rectangular, L-beam, inverted-tee, ledger. Pretensioned and/or mild
    reinforced. Checks: flexure (power formula), shear, transfer & service stresses, camber/
    deflection, min reinforcement (1.2Mcr / 1.33Mu).
-2. **Floor member** — **double-tee** and **hollowcore**. Pretensioned. Same checks as beams
-   plus topping/composite option (later), and span/depth & service deflection emphasis. (The
-   engine already models `doubletee` and `hollowcore` section geometry.)
+2. **Floor member** — **double-tee** and **hollowcore**. Pretensioned. Same checks as beams,
+   **plus composite cast-in-place topping (v1)** — section properties and stresses evaluated in
+   stages: the bare precast section carries self-weight/transfer and erection, the composite
+   (transformed) section carries superimposed dead and live load; span/depth & service
+   deflection emphasis. (The engine already models `doubletee` and `hollowcore` geometry.)
 3. **Wall panel** — solid and sandwich precast/prestressed panels under axial + flexure
    (out-of-plane and handling). Checks: combined P‑M, handling/stripping stresses, service
    stresses. (Engine already models `sandwich` geometry.)
@@ -198,14 +208,21 @@ and how (if at all) it maps to an OpenSees frame model.
 - **Shear (build):** ACI 318‑19 Ch. 22 — Vc (incl. prestress effects / simplified or
   Vci–Vcw), Vs, φVn, stirrup design and spacing limits.
 - **Torsion (build, later):** ACI 318‑19 §22.7 where relevant.
-- **Prestress losses (build):** PCI/ACI — elastic shortening, creep, shrinkage, relaxation
-  (lump-sum option + refined option). Feeds effective prestress `fse` per strand layer.
+- **Prestress losses (build):** **v1 uses the PCI lump-sum method** (elastic shortening, creep,
+  shrinkage, relaxation) to produce effective prestress `fse` per strand layer. A refined
+  time-step method is deferred to a later phase.
 - **Transfer & service stresses (build):** ACI 318‑19 §24.5 allowable compressive/tensile
   fiber stresses at transfer (with f'ci) and at service; top & bottom fiber checks.
 - **Deflection / camber (build):** PCI multipliers, prestress camber, dead/live deflection,
   long-term; span/depth and L/Δ checks.
-- **Axial + flexure (build):** P‑M (walls) and P‑M‑M (columns) interaction; extend the biaxial
-  engine to apply N.
+- **Axial + flexure (build):** P‑M (walls) and **P‑M‑M (columns) — extend the biaxial sweep to
+  apply axial load N** so equilibrium is `ΣF = N` (not 0), tracing a full N–Mx–My interaction
+  surface. (Confirmed approach.)
+- **Composite action (build, v1):** for floor members with a cast-in-place topping, support
+  **staged / transformed-section** analysis — modular-ratio transform of the topping, separate
+  non-composite (precast-only) and composite section properties, and stress superposition by
+  load stage (transfer/erection on the bare section; superimposed dead + live on the composite
+  section), including horizontal shear at the interface (ACI 318‑19 §16.4).
 - **Higher-fidelity capacity (optional, via WASM):** fiber-section moment–curvature to confirm
   ductility/φMₙ and produce M–φ curves.
 
@@ -366,9 +383,9 @@ axial load** in the biaxial interaction (columns/walls).
   shear, transfer/service stresses, camber/deflection, min-reinforcement; PDF report; member
   abstraction with local axes (§4.1). Reach feature parity with `prestressed_beam_power`, then
   exceed it.
-- **Phase 2 — Member library.** Double-tee/hollowcore floor, wall panel (P‑M), column (P‑M‑M;
-  extend biaxial engine with axial load), full DXF convention (§7). Load cases & ACI 318‑19
-  load combinations.
+- **Phase 2 — Member library.** Double-tee/hollowcore floor **with composite topping**, wall
+  panel (P‑M), column (P‑M‑M; extend biaxial engine with axial load N), DXF import +
+  in-app reinforcement assignment (§7). Load cases & ACI 318‑19 load combinations.
 - **Phase 3 — FEA engine (WASM).** Spike: prove a minimal elastic frame solve in-browser
   (go/no-go on Fortran-elimination). Then: `FeaEngine` worker, model build/extract, elastic 2D
   then 3D frames; integrate fiber-section moment–curvature.
@@ -398,19 +415,22 @@ axial load** in the biaxial interaction (columns/walls).
 
 ---
 
-## 14. Open decisions to confirm with the owner
+## 14. Decision log (all resolved)
 
-**Already ratified (see §0 "Decisions ratified so far"):** repo location (`/tessera` subdir),
-hosting posture (public repo, local-only data), and DXF reinforcement (generic placeholders,
-no layer parsing). Still open:
+All open decisions have been ratified by the owner (mirrored in §0):
 
-1. **Engine language:** port the JS engine to **TypeScript** (recommended) vs. keep JS with
-   JSDoc/`ts-check`.
-2. **UI library:** Tailwind + shadcn/ui (recommended) vs. MUI vs. other.
-3. **Prestress-loss method** for v1: PCI lump-sum (fast) vs. refined time-step.
-4. **Column P‑M‑M:** confirm extending the biaxial sweep with applied axial load N as the
-   approach for the interaction surface.
-5. **Composite/topping** behavior for floor members: in v1 or deferred.
+| # | Decision | Resolution |
+|---|----------|------------|
+| 1 | Repo location | `/tessera` subdirectory of this OpenSees fork |
+| 2 | Hosting posture | Public repo / public app code; all project data stays local in the browser |
+| 3 | DXF reinforcement | Generic placeholders from `POINT`s; type/size/grade/prestress assigned via in-app dialogs (no layer parsing) |
+| 4 | Engine language | Port the JS power-formula engine to TypeScript, preserving tests |
+| 5 | UI library | Tailwind CSS + shadcn/ui |
+| 6 | Prestress losses (v1) | PCI lump-sum; refined time-step deferred |
+| 7 | Column P‑M‑M | Extend the biaxial sweep with applied axial load N |
+| 8 | Floor composite topping | Included in v1 (staged / transformed-section analysis) |
+
+No open decisions remain. New questions raised during implementation should be appended here.
 
 ---
 
