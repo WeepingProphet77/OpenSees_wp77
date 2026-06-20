@@ -1,7 +1,7 @@
 # Tessera — Precast Concrete Design Application
 ## Master Build Prompt / Specification
 
-> **Status:** Draft v0.1 — collaborative specification, prepared before implementation.
+> **Status:** Draft v0.2 — collaborative specification, prepared before implementation.
 > **Audience:** The engineer-owner and any AI/human implementer building Tessera.
 > **One-line goal:** An attractive, browser-based, internal-use precast concrete design tool
 > that uses a forked OpenSees as its FEA engine and the Devalapura–Tadros / PCI **power
@@ -20,6 +20,15 @@ Tessera is **structural design software**. Correctness and transparency outrank 
 every reported capacity MUST be traceable to a code clause (ACI 318‑19 / PCI Handbook 8th
 Ed.) and a shown formula, every numerical solver MUST report convergence, and units MUST be
 explicit and consistent at all times.
+
+### Decisions ratified so far (owner)
+- **Repo location:** Tessera lives in a **`/tessera` subdirectory of this OpenSees fork** (§11).
+- **Hosting posture:** simplest route — **public repo / public app code; all project data stays
+  local in the browser** (no private-Pages plan) (§2.3).
+- **DXF reinforcement:** **no layer-name parsing.** DXF `POINT`s create **generic reinforcement
+  placeholders**; the user assigns type/size/grade/prestress afterward via in-app dialogs (§7).
+
+Items still open are in §14.
 
 ---
 
@@ -90,13 +99,13 @@ the WASM engine is complete.
 > design value (Phases 0–2) without it. The frame engine (Phase 3) begins with a throwaway
 > spike that proves a single elastic portal-frame solve in the browser before committing.
 
-### 2.3 Hosting & privacy caveat
+### 2.3 Hosting & privacy posture (decided)
 - GitHub Pages serves static files; Tessera is built to fit that exactly.
-- **IMPORTANT — "internal use only" vs. GitHub Pages:** Pages served from a **public** repo is
-  world-readable. For genuinely internal/confidential use, host from a **private** repo with
-  access-controlled Pages (requires a GitHub Team/Enterprise plan) **or** accept that the
-  *application code* is public while *project data never leaves the user's browser* (no data is
-  ever uploaded — `.tsr` files stay local). Confirm the intended posture in §14.
+- **Decision:** host from a **public** repo and accept that the *application code* is public.
+  This is acceptable because **project data never leaves the browser** — Tessera makes no
+  server calls and never uploads anything; `.tsr` files are read/written locally on the user's
+  machine. (Private/access-controlled Pages, which would need a paid GitHub plan, is explicitly
+  not pursued.)
 
 ---
 
@@ -207,28 +216,32 @@ pass/transition/fail status. Non-convergence is surfaced, never hidden.
 
 ## 7. DXF import specification
 
-Goal: a DXF drawing fully defines a section's concrete shape, openings, and reinforcement.
+Goal: a DXF drawing defines a section's concrete shape and openings, and **marks where**
+reinforcement goes. Properties of that reinforcement are assigned **in the app**, not in the DXF.
 
 - **Concrete outline:** the single **outer closed polyline** (`LWPOLYLINE`/`POLYLINE`, closed)
   → outer ring → `section.points`.
 - **Openings/voids:** each **inner closed polyline** → a hole → `section.holes[i]`.
-- **Reinforcement/strands:** **`POINT` entities** mark bar/strand centroids → `steelLayers[]`
-  with `{ x, depth }` derived from point coordinates (mapped into the engine's
-  top-fiber-down convention).
-- **Encoding bar/strand properties (layer/attribute convention — define & document):**
-  - Use **layer name conventions** to carry grade & size, e.g.
-    `STRAND_270_0.153` (Gr 270, 0.153 in² per strand), `REBAR_60_#5`, `WWR_65_...`.
-  - Optionally support `MTEXT`/`ATTRIB`/block attributes near a point for area, `fse`/jacking,
-    debonding. Provide a clear mapping table and validate on import.
+- **Reinforcement (kept deliberately simple — no layer parsing):** each **`POINT` entity**
+  creates **one generic reinforcement placeholder** at its `{ x, depth }` location (mapped into
+  the engine's top-fiber-down convention). **No layer names, attributes, or text are
+  interpreted** to infer type/size/grade. Each placeholder imports with neutral defaults
+  (e.g. unassigned bar, area 0, `fse` 0).
+- **Post-import assignment (in-app dialogs):** after import, the user selects placeholders
+  (individually or in bulk) and assigns: **type** (mild bar vs. prestressing strand), **size**
+  (standard bar # or strand diameter → area), **grade** (the `steelPresets` catalog), and
+  **effective prestress `fse`** / debonding. This is where a point "becomes" a #5 bar, a
+  0.6″ Gr 270 strand, etc. Provide sensible defaults and bulk-edit.
 - **Mapping target:** `{ sectionType: 'dxf', points, holes }` + `steelLayers:[{area, depth, x,
   fse, grade}]` — i.e. exactly the engine's existing polygon/biaxial input. (The engine's
-  `isPolygonSection()` already treats `'dxf'` and `'custom'` identically.)
+  `isPolygonSection()` already treats `'dxf'` and `'custom'` identically.) On import, `area`/
+  `grade`/`fse` are placeholders until the user assigns them.
 - **Geometry handling:** unit scaling, origin selection, Y-axis flip (DXF Y-up → section
   top-down), polyline arc/bulge handling, winding/orientation normalization, and validation
   (exactly one outer ring; holes inside outer; points inside concrete). Reuse and extend
   `dxfParser.js` / `dxfGeometry.js`; keep their tests green and add fixtures.
-- Provide an import preview with detected outline/openings/points and the inferred grade/area
-  per point before the user accepts.
+- Provide an import preview showing the detected outline, openings, and reinforcement points
+  before the user accepts and then assigns properties.
 
 ---
 
@@ -329,9 +342,8 @@ axial load** in the biaxial interaction (columns/walls).
 
 ## 11. Repository & deployment
 
-- **Recommended location:** build Tessera as a subdirectory of **this** OpenSees fork
-  (e.g. `/tessera`), so the WASM build can reference OpenSees source and the whole thing ships
-  from one repo. (Alternative: separate repo with OpenSees as a submodule — see §14.)
+- **Location (decided):** build Tessera as the **`/tessera` subdirectory of this** OpenSees
+  fork, so the WASM build can reference OpenSees source and the whole thing ships from one repo.
 - **GitHub Actions:**
   - `web-deploy.yml`: install Node, build the Vite app, deploy to **GitHub Pages**
     (`actions/configure-pages`, `actions/deploy-pages`). Set Vite `base` to the repo/Pages path.
@@ -388,19 +400,17 @@ axial load** in the biaxial interaction (columns/walls).
 
 ## 14. Open decisions to confirm with the owner
 
-1. **Repo location:** Tessera in `/tessera` of this fork (recommended) vs. a separate repo with
-   OpenSees as a submodule.
-2. **Internal-use vs. public Pages:** accept public app code with local-only data
-   (recommended, simplest) vs. private repo + access-controlled Pages (needs a paid plan).
-3. **Engine language:** port the JS engine to **TypeScript** (recommended) vs. keep JS with
+**Already ratified (see §0 "Decisions ratified so far"):** repo location (`/tessera` subdir),
+hosting posture (public repo, local-only data), and DXF reinforcement (generic placeholders,
+no layer parsing). Still open:
+
+1. **Engine language:** port the JS engine to **TypeScript** (recommended) vs. keep JS with
    JSDoc/`ts-check`.
-4. **UI library:** Tailwind + shadcn/ui (recommended) vs. MUI vs. other.
-5. **Exact DXF layer/attribute convention** for encoding bar size, strand grade, area, `fse`,
-   and debonding (propose §7 convention; owner to ratify).
-6. **Prestress-loss method** for v1: PCI lump-sum (fast) vs. refined time-step.
-7. **Column P‑M‑M:** confirm extending the biaxial sweep with applied axial load N as the
+2. **UI library:** Tailwind + shadcn/ui (recommended) vs. MUI vs. other.
+3. **Prestress-loss method** for v1: PCI lump-sum (fast) vs. refined time-step.
+4. **Column P‑M‑M:** confirm extending the biaxial sweep with applied axial load N as the
    approach for the interaction surface.
-8. **Composite/topping** behavior for floor members: in v1 or deferred.
+5. **Composite/topping** behavior for floor members: in v1 or deferred.
 
 ---
 
