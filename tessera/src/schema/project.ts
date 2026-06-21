@@ -12,6 +12,7 @@
  */
 import { z } from 'zod';
 import { MemberSchema, SectionSchema } from './domain';
+import { MemberDesignSchema, defaultMemberDesign } from '../design/memberDesign';
 
 /** Current schema version. Bumped whenever the persisted shape changes. */
 export const CURRENT_SCHEMA_VERSION = 1;
@@ -83,6 +84,9 @@ export const ProjectSchema = z.object({
   members: z.array(MemberSchema),
   loadCases: z.array(LoadCaseSchema),
   loadCombos: z.array(LoadComboSchema),
+  // Phase 1 single-member design model (UI/persistence vehicle; see
+  // design/memberDesign.ts). Reconciled with members[] in Phase 2.
+  design: MemberDesignSchema.optional(),
   // Optional, regenerable analysis/design cache.
   results: z.unknown().optional(),
 });
@@ -115,5 +119,6 @@ export function createEmptyProject(appVersion: string, now: Date = new Date()): 
     members: [],
     loadCases: [],
     loadCombos: [],
+    design: defaultMemberDesign(),
   };
 }

@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand';
 import { createEmptyProject, type Project } from '../schema/project';
+import { defaultMemberDesign, type MemberDesignInput } from '../design/memberDesign';
 import { APP_VERSION } from '../appInfo';
 
 export interface ProjectState {
@@ -21,6 +22,8 @@ export interface ProjectState {
   clearProject: () => void;
   /** Patch project metadata (marks the store dirty). */
   setMeta: (patch: Partial<Project['meta']>) => void;
+  /** Patch the current member-design model (marks the store dirty). */
+  setDesign: (patch: Partial<MemberDesignInput>) => void;
   /** Replace the project and mark it dirty (in-app edits). */
   updateProject: (project: Project) => void;
   /** Clear the dirty flag after a successful save. */
@@ -38,6 +41,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setMeta: (patch) =>
     set((s) => ({
       project: { ...s.project, meta: { ...s.project.meta, ...patch } },
+      dirty: true,
+    })),
+
+  setDesign: (patch) =>
+    set((s) => ({
+      project: {
+        ...s.project,
+        design: { ...(s.project.design ?? defaultMemberDesign()), ...patch },
+      },
       dirty: true,
     })),
 
