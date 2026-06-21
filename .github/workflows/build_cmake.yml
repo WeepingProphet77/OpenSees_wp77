@@ -113,7 +113,7 @@ jobs:
           WINDOWS_BASEKIT_COMPONENTS: intel.oneapi.win.mkl.devel
           WINDOWS_HPCKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/c95a3b26-fc45-496c-833b-df08b10297b9/w_HPCKit_p_2024.1.0.561_offline.exe
           WINDOWS_HPCKIT_COMPONENTS: "intel.oneapi.win.mpi.devel:intel.oneapi.win.ifort-compiler"
-        working-directory: D:\a\OpenSees\OpenSees\.github\workflows
+        working-directory: ${{ github.workspace }}\.github\workflows
         run: |
           ./install_fortran.bat $env:WINDOWS_BASEKIT_URL $env:WINDOWS_BASEKIT_COMPONENTS
           ./install_fortran.bat $env:WINDOWS_HPCKIT_URL $env:WINDOWS_HPCKIT_COMPONENTS

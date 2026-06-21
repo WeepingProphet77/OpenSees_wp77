@@ -11,6 +11,7 @@
  * phases can flesh out the domain model without breaking older files.
  */
 import { z } from 'zod';
+import { MemberSchema, SectionSchema } from './domain';
 
 /** Current schema version. Bumped whenever the persisted shape changes. */
 export const CURRENT_SCHEMA_VERSION = 1;
@@ -61,11 +62,10 @@ export const SteelSchema = z.object({
   defaultFse: z.number().default(0),
 });
 
-// Lenient placeholders for entities fully modeled in later phases. They keep an
-// `id` (so the UI can address them) and preserve any other fields on round-trip.
+// Section and Member are fully modeled in ./domain (build spec §4 / §4.1).
+// Load cases & ACI 318-19 load combinations are fleshed out in Phase 2, so they
+// remain lenient placeholders for now (keep an `id`, preserve other fields).
 const WithId = z.object({ id: z.string() }).passthrough();
-export const SectionSchema = WithId;
-export const MemberSchema = WithId;
 export const LoadCaseSchema = WithId;
 export const LoadComboSchema = WithId;
 
