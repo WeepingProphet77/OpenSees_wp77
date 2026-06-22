@@ -31,7 +31,7 @@ const check = (name, a, b, rel, abs) => {
     nodes: [{ id: 'b', x: 0, y: 0 }, { id: 't', x: L, y: 0 }],
     materials: [{ id: 'm', E }],
     sections: [{ id: 's', A, I }],
-    elements: [{ id: 'e', type: 'elasticBeamColumn2d', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's' }],
+    elements: [{ id: 'e', type: 'elasticBeamColumn', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's' }],
     supports: [{ nodeId: 'b', dx: true, dy: true, rz: true }],
     nodalLoads: [{ nodeId: 't', fx: 0, fy: P, mz: 0 }],
     elementLoads: [],
@@ -50,8 +50,8 @@ const check = (name, a, b, rel, abs) => {
     materials: [{ id: 'mat', E }],
     sections: [{ id: 's', A, I }],
     elements: [
-      { id: 'e1', type: 'elasticBeamColumn2d', nodeI: 'a', nodeJ: 'm', materialId: 'mat', sectionId: 's' },
-      { id: 'e2', type: 'elasticBeamColumn2d', nodeI: 'm', nodeJ: 'c', materialId: 'mat', sectionId: 's' },
+      { id: 'e1', type: 'elasticBeamColumn', nodeI: 'a', nodeJ: 'm', materialId: 'mat', sectionId: 's' },
+      { id: 'e2', type: 'elasticBeamColumn', nodeI: 'm', nodeJ: 'c', materialId: 'mat', sectionId: 's' },
     ],
     supports: [{ nodeId: 'a', dx: true, dy: true, rz: false }, { nodeId: 'c', dx: false, dy: true, rz: false }],
     nodalLoads: [],
@@ -76,9 +76,9 @@ const check = (name, a, b, rel, abs) => {
     materials: [{ id: 'm', E }],
     sections: [{ id: 's', A, I }],
     elements: [
-      { id: 'colL', type: 'elasticBeamColumn2d', nodeI: 'bl', nodeJ: 'tl', materialId: 'm', sectionId: 's' },
-      { id: 'colR', type: 'elasticBeamColumn2d', nodeI: 'br', nodeJ: 'tr', materialId: 'm', sectionId: 's' },
-      { id: 'beam', type: 'elasticBeamColumn2d', nodeI: 'tl', nodeJ: 'tr', materialId: 'm', sectionId: 's' },
+      { id: 'colL', type: 'elasticBeamColumn', nodeI: 'bl', nodeJ: 'tl', materialId: 'm', sectionId: 's' },
+      { id: 'colR', type: 'elasticBeamColumn', nodeI: 'br', nodeJ: 'tr', materialId: 'm', sectionId: 's' },
+      { id: 'beam', type: 'elasticBeamColumn', nodeI: 'tl', nodeJ: 'tr', materialId: 'm', sectionId: 's' },
     ],
     supports: [
       { nodeId: 'bl', dx: true, dy: true, rz: true },
