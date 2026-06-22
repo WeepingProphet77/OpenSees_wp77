@@ -81,6 +81,17 @@ int len(const val &arr) {
 double num(const val &v, double def = 0.0) {
   return (v.isUndefined() || v.isNull()) ? def : v.as<double>();
 }
+// Read an optional boolean field from a (possibly absent) object.
+bool flag(const val &obj, const char *key, bool def = false) {
+  if (obj.isUndefined() || obj.isNull()) return def;
+  val v = obj[key];
+  return (v.isUndefined() || v.isNull()) ? def : v.as<bool>();
+}
+// Map per-end moment-release booleans to the OpenSees release code
+// (0 none, 1 end I, 2 end J, 3 both) for one bending axis.
+int releaseCode(const val &rel, const char *endI, const char *endJ) {
+  return (flag(rel, endI) ? 1 : 0) + (flag(rel, endJ) ? 2 : 0);
+}
 }  // namespace
 
 // Solve a linear-elastic 2D frame with OpenSees (3 DOF/node).
@@ -142,7 +153,10 @@ val solve2D(val model) {
     elemNj[tag] = nj;
 
     CrdTransf *transf = new LinearCrdTransf2d(tag);
-    domain->addElement(new ElasticBeam2d(tag, AI.first, E, AI.second, ni, nj, *transf));
+    // ElasticBeam2d(tag, A, E, I, Nd1, Nd2, transf, alpha, d, rho, cMass, release)
+    const int relz = releaseCode(el["releases"], "Mzi", "Mzj");
+    domain->addElement(new ElasticBeam2d(tag, AI.first, E, AI.second, ni, nj, *transf, 0.0, 0.0,
+                                         0.0, 0, relz));
   }
 
   // ---- supports (homogeneous single-point constraints) ----------------------
@@ -370,9 +384,11 @@ val solve3D(val model) {
       vecxz(2) = vraw[2].as<double>();
     }
     CrdTransf *transf = new LinearCrdTransf3d(tag, vecxz);
-    // ElasticBeam3d(tag, A, E, G, Jx, Iy, Iz, Nd1, Nd2, transf)
-    domain->addElement(
-        new ElasticBeam3d(tag, sc.A, EG.first, EG.second, sc.J, sc.Iy, sc.Iz, ni, nj, *transf));
+    // ElasticBeam3d(tag, A, E, G, Jx, Iy, Iz, Nd1, Nd2, transf, rho, cMass, releasez, releasey)
+    const int relz = releaseCode(el["releases"], "Mzi", "Mzj");
+    const int rely = releaseCode(el["releases"], "Myi", "Myj");
+    domain->addElement(new ElasticBeam3d(tag, sc.A, EG.first, EG.second, sc.J, sc.Iy, sc.Iz, ni, nj,
+                                         *transf, 0.0, 0, relz, rely));
   }
 
   // ---- supports -------------------------------------------------------------

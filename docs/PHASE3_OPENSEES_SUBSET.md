@@ -14,6 +14,8 @@
 > - **B3** — member-load library: concentrated **point loads** (`Beam2d/3dPointLoad`)
 >   and **partial / trapezoidal** distributed loads (`Beam2d/3dPartialUniformLoad`),
 >   with axial components, on top of the existing full-span uniform loads.
+> - **Member end releases** — per-end moment hinges (`Mzi`/`Mzj`, plus `Myi`/`Myj`
+>   in 3D) mapped to the `ElasticBeam2d`/`ElasticBeam3d` release codes.
 
 ## What this is
 
@@ -99,6 +101,10 @@ The compile was clean; the work was resolving the link graph minimally:
   (`5PL³/48EI`), full-span partial load ≡ uniform, **triangular** load
   (`11wL⁴/120EI`, base `wL²/3`), and an axial point load — checking deflections
   **and** base reactions; plus rejection of a partial load with `b ≤ a`.
+- **End releases** (2D & 3D): a fixed+roller beam under UDL gives the propped
+  cantilever (`R = 5wL/8`, base `M = wL²/8`); releasing the fixed-end moment
+  recovers the simply-supported result (`R = wL/2`, base `M = 0`), about both the
+  local z and local y axes.
 
 Plus the Node smoke test (`fea/test/smoke.mjs`, 2D) on each module in CI. The
 driver tolerates omitted optional fields/arrays (defaults to 0 / empty) so
@@ -108,8 +114,9 @@ hand-built models don't silently produce NaN.
 
 - **B3 (done):** member-load library — point loads and partial / trapezoidal
   distributed loads (2D & 3D), with axial components.
-- **Next (engine):** member end releases (the `ElasticBeam2d/3d` `release`
-  parameters), multiple load patterns & combinations, and rigid end offsets
+- **End releases (done):** per-end moment hinges via the `ElasticBeam2d/3d`
+  `release` parameters.
+- **Next (engine):** multiple load patterns & combinations, and rigid end offsets
   (`rigJntOffset`) for the Vierendeel equivalent frame (§5.5). A future
   refinement is to expose the RISA-3D β roll angle (§4.1) as a friendlier
   alternative to `vecxz`.

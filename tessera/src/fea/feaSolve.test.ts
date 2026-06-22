@@ -368,6 +368,63 @@ describe.skipIf(!isBuilt('feaEngine'))('WASM member loads — point & partial/tr
   });
 });
 
+// Member end releases (moment hinges) — releasing an end moment turns a propped
+// cantilever (fixed + roller) into a simply-supported beam.
+describe.skipIf(!isBuilt('feaEngine'))('WASM member end releases (OpenSees)', () => {
+  const E = 29000, I = 100, Iy = 50, A = 10, J = 20, G = 11153.846, L = 100, w = -0.02;
+  const beam2d = (releases?: Record<string, boolean>) => ({
+    dimension: 2 as const,
+    nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: L, y: 0 }],
+    materials: [{ id: 'm', E }],
+    sections: [{ id: 's', A, I }],
+    elements: [{ id: 'e', nodeI: 'a', nodeJ: 'b', materialId: 'm', sectionId: 's', ...(releases ? { releases } : {}) }],
+    supports: [{ nodeId: 'a', dx: true, dy: true, rz: true }, { nodeId: 'b', dy: true }],
+    elementLoads: [{ elementId: 'e', wy: w }],
+  });
+  const R = (r: Awaited<ReturnType<FeaEngine['solve']>>, id: string) => r.reactions.find((x) => x.nodeId === id)!;
+  const EF = (r: Awaited<ReturnType<FeaEngine['solve']>>) => r.elementForces.find((x) => x.elementId === 'e')!;
+
+  it('no release → propped cantilever: R_a = 5wL/8, base M = wL²/8', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(beam2d());
+    expect(r.converged).toBe(true);
+    expect(near(Math.abs(R(r, 'a').fy), (5 * Math.abs(w) * L) / 8)).toBe(true);
+    expect(near(Math.abs(R(r, 'a').mz), (Math.abs(w) * L ** 2) / 8)).toBe(true);
+    expect(near(Math.abs(EF(r).iM), (Math.abs(w) * L ** 2) / 8)).toBe(true);
+    engine.dispose();
+  });
+
+  it('release Mzi → simply supported: R_a = wL/2, base M = 0 (hinge)', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(beam2d({ Mzi: true }));
+    expect(near(Math.abs(R(r, 'a').fy), (Math.abs(w) * L) / 2)).toBe(true);
+    expect(near(R(r, 'a').mz, 0, 1, 1e-5)).toBe(true);
+    expect(near(EF(r).iM, 0, 1, 1e-5)).toBe(true);
+    engine.dispose();
+  });
+
+  it('3D release Myi about local y (load in −z) → simply supported: R_a fz = wL/2', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve({
+      dimension: 3,
+      nodes: [{ id: 'a', x: 0, y: 0, z: 0 }, { id: 'b', x: L, y: 0, z: 0 }],
+      materials: [{ id: 'm', E, G }],
+      sections: [{ id: 's', A, I, Iy, J }],
+      elements: [{ id: 'e', nodeI: 'a', nodeJ: 'b', materialId: 'm', sectionId: 's', vecxz: [0, 0, 1], releases: { Myi: true } }],
+      supports: [
+        { nodeId: 'a', dx: true, dy: true, dz: true, rx: true, ry: true, rz: true },
+        { nodeId: 'b', dz: true },
+      ],
+      elementLoads: [{ elementId: 'e', wy: 0, wz: w }],
+    });
+    expect(r.converged).toBe(true);
+    expect(near(Math.abs((R(r, 'a').fz ?? 0)), (Math.abs(w) * L) / 2)).toBe(true);
+    expect(near(R(r, 'a').my ?? 0, 0, 1, 1e-5)).toBe(true);
+    expect(near(EF(r).iMy ?? 0, 0, 1, 1e-5)).toBe(true);
+    engine.dispose();
+  });
+});
+
 if (ENGINES.length === 0) {
   describe('WASM elastic frame solve', () => {
     it.skip('skipped — run `npm run build:wasm` (+ build:wasm:oracle) to build public/fea modules', () => {});
