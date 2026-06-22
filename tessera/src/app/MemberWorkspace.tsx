@@ -12,6 +12,7 @@ import {
 import { analyzeMember, type MemberAnalysis } from '@/engine/analyzeMember';
 import { analyzeBiaxial, type BiaxialResult } from '@/engine/beamCalculations';
 import { pmInteraction, momentCapacityAtP, type PMInteractionResult } from '@/engine/columnPM';
+import { handlingStresses } from '@/engine/handlingStresses';
 import { PMDiagram } from '@/components/diagrams/PMDiagram';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -90,16 +91,18 @@ export function MemberWorkspace() {
   }, [design.biaxial, input]);
 
   const isColumn = design.memberType === 'column';
+  const isWall = design.memberType === 'wall';
+  const isPM = isColumn || isWall;
   const pm = useMemo((): PMInteractionResult | null => {
-    if (!isColumn) return null;
+    if (!isPM) return null;
     try {
       return pmInteraction(input.section, input.layers, { tie: design.tie });
     } catch {
       return null;
     }
-  }, [isColumn, design.tie, input]);
+  }, [isPM, design.tie, input]);
 
-  // Column P-M demand check: is (Mu, Pu) inside the φ envelope?
+  // P-M demand check (column / wall out-of-plane): is (Mu, Pu) inside the φ envelope?
   const pmCheck = useMemo(() => {
     if (!pm || !analysis.ok) return null;
     const Pu = design.axialPu; // kip, compression +
@@ -109,10 +112,24 @@ export function MemberWorkspace() {
     return { Pu, Mu, capM, pass: axialOk && Mu <= capM + 1e-6 };
   }, [pm, analysis, design.axialPu]);
 
+  // Wall handling / stripping stress check.
+  const handling = useMemo(() => {
+    if (!isWall || !analysis.ok) return null;
+    return handlingStresses({
+      L: design.L * 12,
+      wSelf: analysis.value.properties.wSelf,
+      S: analysis.value.properties.Sb,
+      fci: design.fci,
+      impactFactor: design.handlingImpact,
+      lambda: design.lambda,
+    });
+  }, [isWall, analysis, design.L, design.fci, design.handlingImpact, design.lambda]);
+
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
   const isDT = design.sectionType === 'doubletee';
   const isHC = design.sectionType === 'hollowcore';
+  const isSandwich = design.sectionType === 'sandwich';
   const isFloor = isDT || isHC;
   const centerX = sectionCenterX(design);
 
@@ -151,6 +168,7 @@ export function MemberWorkspace() {
                 <select className={selectClass} value={design.memberType} onChange={(e) => set('memberType', e.target.value as MemberDesignInput['memberType'])}>
                   <option value="beam">Beam (flexure)</option>
                   <option value="column">Column (P-M)</option>
+                  <option value="wall">Wall panel (P-M)</option>
                 </select>
               </div>
             </div>
@@ -165,6 +183,7 @@ export function MemberWorkspace() {
                 <option value="tbeam">T-beam</option>
                 <option value="doubletee">Double-tee</option>
                 <option value="hollowcore">Hollowcore</option>
+                <option value="sandwich">Sandwich wall</option>
                 <option value="custom">Custom (drawn)</option>
               </select>
             </div>
@@ -189,6 +208,10 @@ export function MemberWorkspace() {
                   {isHC && <NumberField label="# voids" value={design.numVoids} onChange={(v) => set('numVoids', Math.max(0, Math.round(v)))} />}
                   {isHC && <NumberField label="Void dia." value={design.voidDiameter} onChange={(v) => set('voidDiameter', v)} suffix="in" />}
                   {isHC && <NumberField label="Void depth" value={design.voidCenterDepth} onChange={(v) => set('voidCenterDepth', v)} suffix="in" />}
+                  {isSandwich && <NumberField label="Top wythe width bt" value={design.bt} onChange={(v) => set('bt', v)} suffix="in" />}
+                  {isSandwich && <NumberField label="Top wythe thk ht" value={design.ht} onChange={(v) => set('ht', v)} suffix="in" />}
+                  {isSandwich && <NumberField label="Gap hg" value={design.hg} onChange={(v) => set('hg', v)} suffix="in" />}
+                  {isSandwich && <NumberField label="Bot wythe width bb" value={design.bb} onChange={(v) => set('bb', v)} suffix="in" />}
                 </div>
                 <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
                   <SectionView section={input.section} layers={input.layers} />
@@ -279,7 +302,7 @@ export function MemberWorkspace() {
             <CardTitle className="text-base">Design parameters</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
-            {isColumn && (
+            {isPM && (
               <>
                 <NumberField label="Axial Pu (factored)" value={design.axialPu} onChange={(v) => set('axialPu', v)} suffix="kip" />
                 <div className="space-y-1">
@@ -290,6 +313,9 @@ export function MemberWorkspace() {
                   </select>
                 </div>
               </>
+            )}
+            {isWall && (
+              <NumberField label="Handling impact ×" value={design.handlingImpact} onChange={(v) => set('handlingImpact', v)} />
             )}
             <div className="space-y-1">
               <Label>Service class</Label>
@@ -407,6 +433,41 @@ export function MemberWorkspace() {
                 </CardHeader>
                 <CardContent className="flex justify-center">
                   <PMDiagram result={pm} demand={pmCheck ? { M: pmCheck.Mu, P: pmCheck.Pu, pass: pmCheck.pass } : undefined} />
+                </CardContent>
+              </Card>
+            )}
+
+            {handling && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Handling / stripping</CardTitle>
+                    <CardDescription>
+                      Two-point symmetric pickup (a = {handling.a.toFixed(1)} in); f = M_strip/S ≤ fr = 7.5λ√f′ci (§19.2.3 / PCI).
+                    </CardDescription>
+                  </div>
+                  <span
+                    className={
+                      'rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                      (handling.check.status === 'pass' ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
+                    }
+                  >
+                    {handling.check.status === 'pass' ? 'HANDLING PASS' : 'HANDLING FAIL'}
+                  </span>
+                </CardHeader>
+                <CardContent className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Stripping M</div>
+                    <div className="font-mono font-semibold">{(handling.Mgov / 12).toFixed(1)} kip-ft</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Tensile f</div>
+                    <div className="font-mono font-semibold">{handling.stress.toFixed(3)} ksi</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">fr allow.</div>
+                    <div className="font-mono font-semibold">{handling.allowable.toFixed(3)} ksi</div>
+                  </div>
                 </CardContent>
               </Card>
             )}
