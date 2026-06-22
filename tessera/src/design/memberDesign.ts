@@ -44,12 +44,24 @@ export const MemberDesignSchema = z.object({
   axialPu: z.number().default(0),
   /** Column transverse confinement (affects the φPn,max cap). */
   tie: z.enum(['tied', 'spiral']).default('tied'),
-  sectionType: z.enum(['rectangular', 'tbeam', 'custom']).default('rectangular'),
+  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'custom']).default('rectangular'),
   // Geometry (in)
   b: z.number().positive().default(12), // width (rect) / web width (tee)
   h: z.number().positive().default(28),
-  bf: z.number().positive().default(36), // flange width (tee)
-  hf: z.number().positive().default(4), // flange thickness (tee)
+  bf: z.number().positive().default(36), // flange width (tee / double-tee / hollowcore)
+  hf: z.number().positive().default(4), // flange thickness (tee / double-tee)
+  // Double-tee
+  numStems: z.number().int().positive().default(2),
+  stemWidth: z.number().positive().default(4.75),
+  // Hollowcore
+  numVoids: z.number().int().nonnegative().default(6),
+  voidDiameter: z.number().positive().default(6),
+  voidCenterDepth: z.number().positive().default(4),
+  // Composite cast-in-place topping (floor members)
+  hasTopping: z.boolean().default(false),
+  toppingWidth: z.number().positive().default(48),
+  toppingThickness: z.number().positive().default(2),
+  toppingFc: z.number().positive().default(4),
   // Custom polygon (sectionType === 'custom')
   points: z.array(PointSchema).optional(),
   holes: z.array(z.array(PointSchema)).optional(),
@@ -97,21 +109,27 @@ export const gradeOptions = steelPresets.map((p) => ({ id: p.id, name: p.name, c
 
 /** Build the engine section from the design model (parametric or custom polygon). */
 export function buildEngineSection(d: MemberDesignInput): Section {
-  if (d.sectionType === 'custom') {
-    const points = d.points ?? [];
-    const h = points.length ? Math.max(...points.map((p) => p.y)) : d.h;
-    return { sectionType: 'custom', fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
+  const base = { fc: d.fc, h: d.h, lambda: d.lambda };
+  switch (d.sectionType) {
+    case 'custom': {
+      const points = d.points ?? [];
+      const h = points.length ? Math.max(...points.map((p) => p.y)) : d.h;
+      return { sectionType: 'custom', fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
+    }
+    case 'tbeam':
+      return { ...base, sectionType: 'tbeam', bw: d.b, bf: d.bf, hf: d.hf };
+    case 'doubletee':
+      return { ...base, sectionType: 'doubletee', bf: d.bf, hf: d.hf, numStems: d.numStems, stemWidth: d.stemWidth, bw: d.numStems * d.stemWidth };
+    case 'hollowcore':
+      return { ...base, sectionType: 'hollowcore', bf: d.bf, numVoids: d.numVoids, voidDiameter: d.voidDiameter, voidCenterDepth: d.voidCenterDepth, bw: d.bf };
+    default:
+      return { ...base, sectionType: 'rectangular', bw: d.b, bf: d.b, hf: d.h };
   }
-  const isT = d.sectionType === 'tbeam';
-  return {
-    sectionType: d.sectionType,
-    fc: d.fc,
-    h: d.h,
-    lambda: d.lambda,
-    bw: d.b,
-    bf: isT ? d.bf : d.b,
-    hf: isT ? d.hf : d.h,
-  };
+}
+
+/** Topping spec for composite floor members, or null when none. */
+export function toppingOf(d: MemberDesignInput): { width: number; thickness: number; fc: number } | null {
+  return d.hasTopping ? { width: d.toppingWidth, thickness: d.toppingThickness, fc: d.toppingFc } : null;
 }
 
 /** Horizontal center of the section (default x for reinforcement). */
@@ -143,6 +161,7 @@ export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
     layers,
     L: d.L * 12, // ft → in
     loads: { superDead: d.superDead / 12, live: d.live / 12 }, // kip/ft → kip/in
+    topping: toppingOf(d) ?? undefined,
     design: {
       serviceClass: d.serviceClass,
       endRegion: d.endRegion,

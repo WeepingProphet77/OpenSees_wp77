@@ -29,6 +29,14 @@ import {
   type LossResult,
   type StrandType,
 } from './designChecks/prestressLosses';
+import {
+  transformedComposite,
+  compositeServiceStresses,
+  interfaceShearCheck,
+  type CompositeProps,
+  type CompositeStressResult,
+  type InterfaceShearResult,
+} from './compositeSection';
 
 export interface AnalyzeMemberInput {
   /** Engine section (with f'c, h, and geometry for its sectionType). */
@@ -60,6 +68,8 @@ export interface AnalyzeMemberInput {
     strandType?: StrandType;
     Eps?: number;
   };
+  /** Cast-in-place composite topping (floor members), or omitted. */
+  topping?: { width: number; thickness: number; fc: number };
 }
 
 export interface MemberAnalysis {
@@ -93,6 +103,11 @@ export interface MemberAnalysis {
   shear: ShearResult;
   camber: CamberResult;
   losses?: LossResult;
+  composite?: {
+    props: CompositeProps;
+    stresses: CompositeStressResult;
+    interface: InterfaceShearResult;
+  };
   checks: DesignCheck[];
   governing: { utilization: number; status: 'pass' | 'fail'; check?: DesignCheck };
 }
@@ -223,6 +238,35 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     });
   }
 
+  // ── Composite cast-in-place topping (floor members) ─────────────────────────
+  let composite: MemberAnalysis['composite'];
+  if (input.topping) {
+    const cprops = transformedComposite(
+      { A, Ig, yCg, h },
+      input.topping,
+      fc,
+    );
+    // Stage moments: the bare precast carries self-weight + the wet topping;
+    // the composite section carries superimposed dead + live.
+    const wTopping = (input.topping.width * input.topping.thickness * wc) / 1728 / 1000;
+    const Mprecast = uniformMidspanMoment(wSelf + wTopping, L);
+    const Mcomposite = uniformMidspanMoment(wSuper + wLive, L);
+    const stressRes = compositeServiceStresses({
+      precast: { A, Ig, yCg, h },
+      composite: cprops,
+      precastFc: fc,
+      toppingFc: input.topping.fc,
+      lambda,
+      serviceClass: design.serviceClass,
+      Pe,
+      e,
+      Mprecast,
+      Mcomposite,
+    });
+    const iface = interfaceShearCheck({ Vu: Vmax, bv: bw, d: input.topping.thickness + d });
+    composite = { props: cprops, stresses: stressRes, interface: iface };
+  }
+
   // ── Aggregate checks ─────────────────────────────────────────────────────────
   const flexureChecks: DesignCheck[] = [
     check({
@@ -250,6 +294,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     ...(stresses?.checks ?? []),
     ...shear.checks,
     ...camber.checks,
+    ...(composite ? [...composite.stresses.checks, composite.interface.check] : []),
   ];
 
   let governingCheck: DesignCheck | undefined;
@@ -271,6 +316,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     shear,
     camber,
     losses,
+    composite,
     checks,
     governing: { utilization: maxUtil, status, check: governingCheck },
   };
