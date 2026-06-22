@@ -21,3 +21,7 @@ node_modules/.tmp/
 
 # Test / coverage
 coverage/
+
+# Built WASM FEA module (build artifact — produced by fea/build.sh / wasm-build.yml,
+# lazy-loaded at runtime; never committed).
+public/fea/

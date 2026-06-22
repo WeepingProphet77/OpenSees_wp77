@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:wasm": "bash fea/build.sh",
+    "fea:smoke": "node fea/test/smoke.mjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
