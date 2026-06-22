@@ -38,13 +38,15 @@ const PointSchema = z.object({ x: z.number(), y: z.number() });
 
 export const MemberDesignSchema = z.object({
   name: z.string().default('Beam 1'),
-  /** Member type. 'column' enables the P-M interaction check. */
-  memberType: z.enum(['beam', 'column']).default('beam'),
-  /** Factored axial demand for a column (kip, compression +). */
+  /** Member type. 'column'/'wall' enable the P-M interaction check. */
+  memberType: z.enum(['beam', 'column', 'wall']).default('beam'),
+  /** Factored axial demand for a column/wall (kip, compression +). */
   axialPu: z.number().default(0),
   /** Column transverse confinement (affects the φPn,max cap). */
   tie: z.enum(['tied', 'spiral']).default('tied'),
-  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'custom']).default('rectangular'),
+  /** Wall handling: impact/suction multiplier on self-weight at stripping. */
+  handlingImpact: z.number().positive().default(1.5),
+  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'sandwich', 'custom']).default('rectangular'),
   // Geometry (in)
   b: z.number().positive().default(12), // width (rect) / web width (tee)
   h: z.number().positive().default(28),
@@ -57,6 +59,11 @@ export const MemberDesignSchema = z.object({
   numVoids: z.number().int().nonnegative().default(6),
   voidDiameter: z.number().positive().default(6),
   voidCenterDepth: z.number().positive().default(4),
+  // Sandwich wall panel (two concrete wythes + insulation gap)
+  bt: z.number().positive().default(48), // top wythe width
+  ht: z.number().positive().default(3), // top wythe thickness
+  hg: z.number().positive().default(2), // gap (insulation) thickness
+  bb: z.number().positive().default(48), // bottom wythe width
   // Composite cast-in-place topping (floor members)
   hasTopping: z.boolean().default(false),
   toppingWidth: z.number().positive().default(48),
@@ -122,6 +129,8 @@ export function buildEngineSection(d: MemberDesignInput): Section {
       return { ...base, sectionType: 'doubletee', bf: d.bf, hf: d.hf, numStems: d.numStems, stemWidth: d.stemWidth, bw: d.numStems * d.stemWidth };
     case 'hollowcore':
       return { ...base, sectionType: 'hollowcore', bf: d.bf, numVoids: d.numVoids, voidDiameter: d.voidDiameter, voidCenterDepth: d.voidCenterDepth, bw: d.bf };
+    case 'sandwich':
+      return { ...base, sectionType: 'sandwich', bt: d.bt, ht: d.ht, hg: d.hg, bb: d.bb, bw: Math.max(d.bt, d.bb) };
     default:
       return { ...base, sectionType: 'rectangular', bw: d.b, bf: d.b, hf: d.h };
   }
@@ -138,7 +147,8 @@ export function sectionCenterX(d: MemberDesignInput): number {
     const xs = d.points.map((p) => p.x);
     return (Math.min(...xs) + Math.max(...xs)) / 2;
   }
-  if (d.sectionType === 'tbeam') return d.bf / 2;
+  if (d.sectionType === 'tbeam' || d.sectionType === 'doubletee' || d.sectionType === 'hollowcore') return d.bf / 2;
+  if (d.sectionType === 'sandwich') return Math.max(d.bt, d.bb) / 2;
   return d.b / 2;
 }
 
