@@ -120,9 +120,12 @@ hand-built models don't silently produce NaN.
   (`rigJntOffset`) for the Vierendeel equivalent frame (§5.5). A future
   refinement is to expose the RISA-3D β roll angle (§4.1) as a friendlier
   alternative to `vecxz`.
-- **Results visualization (C1):** loading, shear, moment (both planes in 3D),
-  axial, torsion, and deflected-shape diagrams — reconstructed in the app from
-  element end forces + member loads (now that B3 supplies the load types).
+- **Results visualization (C1):** the internal-force **reconstruction module**
+  (`src/fea/feaDiagrams.ts`) is done — it rebuilds axial/shear/moment along each
+  member from the element end forces + member loads (verified against closed-form
+  in `feaDiagrams.test.ts`). Next: the SVG rendering components (loading, shear,
+  moment, axial, deflected shape), the 3D out-of-plane plane (Vz/My) and torsion,
+  and wiring into a frame view.
 - **B4 + section linkage:** tie FEA members to real cross-sections (reusing the
   existing `compositeSection` / `serviceStresses` code) for stress diagrams, then
   fiber-section moment–curvature (`forceBeamColumn`) for higher-fidelity capacity
