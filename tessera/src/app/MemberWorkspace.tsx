@@ -1,19 +1,24 @@
 import { useMemo } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { FileText, Plus, Trash2 } from 'lucide-react';
 import { useProjectStore } from '@/store/projectStore';
 import {
   defaultMemberDesign,
   designToInput,
   gradeOptions,
+  sectionCenterX,
   type MemberDesignInput,
   type ReinfRow,
 } from '@/design/memberDesign';
 import { analyzeMember, type MemberAnalysis } from '@/engine/analyzeMember';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { analyzeBiaxial, type BiaxialResult } from '@/engine/beamCalculations';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { SectionView } from '@/components/diagrams/SectionView';
+import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
+import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
+import { InteractionDiagram } from '@/components/diagrams/InteractionDiagram';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 
 const selectClass =
@@ -58,6 +63,8 @@ function NumberField({
 
 export function MemberWorkspace() {
   const design = useProjectStore((s) => s.project.design) ?? defaultMemberDesign();
+  const projectName = useProjectStore((s) => s.project.meta.name);
+  const engineer = useProjectStore((s) => s.project.meta.engineer);
   const setDesign = useProjectStore((s) => s.setDesign);
 
   const set = <K extends keyof MemberDesignInput>(key: K, value: MemberDesignInput[K]) =>
@@ -71,21 +78,34 @@ export function MemberWorkspace() {
       return { ok: false, error: (e as Error).message };
     }
   }, [input]);
+  const biaxial = useMemo((): BiaxialResult | null => {
+    if (!design.biaxial) return null;
+    try {
+      return analyzeBiaxial(input.section, input.layers, {});
+    } catch {
+      return null;
+    }
+  }, [design.biaxial, input]);
 
   const isT = design.sectionType === 'tbeam';
+  const isCustom = design.sectionType === 'custom';
+  const centerX = sectionCenterX(design);
 
   const updateLayer = (i: number, patch: Partial<ReinfRow>) =>
-    set(
-      'layers',
-      design.layers.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
-    );
+    set('layers', design.layers.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addLayer = () =>
     set('layers', [
       ...design.layers,
       { id: crypto.randomUUID(), gradeId: 'grade60', area: 0.31, depth: design.h - 2.5, fse: 0, kind: 'mild' },
     ]);
-  const removeLayer = (i: number) =>
-    set('layers', design.layers.filter((_, idx) => idx !== i));
+  const removeLayer = (i: number) => set('layers', design.layers.filter((_, idx) => idx !== i));
+
+  const onReport = async () => {
+    if (!analysis.ok) return;
+    // Lazy-load the PDF generator (jsPDF) so it stays out of the main bundle.
+    const { generateMemberReport } = await import('@/report/generateReport');
+    generateMemberReport({ projectName, engineer, design, analysis: analysis.value });
+  };
 
   return (
     <div className="grid gap-6 lg:grid-cols-12">
@@ -109,17 +129,28 @@ export function MemberWorkspace() {
               >
                 <option value="rectangular">Rectangular</option>
                 <option value="tbeam">T-beam</option>
+                <option value="custom">Custom (drawn)</option>
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" />
-              <NumberField label="Depth h" value={design.h} onChange={(v) => set('h', v)} suffix="in" />
-              {isT && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
-              {isT && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" />}
-            </div>
-            <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
-              <SectionView section={input.section} layers={input.layers} />
-            </div>
+
+            {isCustom ? (
+              <SectionDrawer
+                value={{ points: design.points, holes: design.holes }}
+                onChange={(points, holes) => setDesign({ points: points ?? undefined, holes })}
+              />
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" />
+                  <NumberField label="Depth h" value={design.h} onChange={(v) => set('h', v)} suffix="in" />
+                  {isT && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
+                  {isT && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" />}
+                </div>
+                <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
+                  <SectionView section={input.section} layers={input.layers} />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -175,15 +206,12 @@ export function MemberWorkspace() {
                   </div>
                   <NumberField label="Area" value={r.area} onChange={(v) => updateLayer(i, { area: v })} suffix="in²" />
                   <NumberField label="Depth d" value={r.depth} onChange={(v) => updateLayer(i, { depth: v })} suffix="in" />
-                  {r.kind === 'strand' && (
-                    <NumberField label="fse" value={r.fse} onChange={(v) => updateLayer(i, { fse: v })} suffix="ksi" />
-                  )}
+                  {r.kind === 'strand' && <NumberField label="fse" value={r.fse} onChange={(v) => updateLayer(i, { fse: v })} suffix="ksi" />}
+                  {design.biaxial && <NumberField label="x position" value={r.x ?? centerX} onChange={(v) => updateLayer(i, { x: v })} suffix="in" />}
                 </div>
               </div>
             ))}
-            {design.layers.length === 0 && (
-              <p className="text-sm text-muted-foreground">Add at least one reinforcement layer.</p>
-            )}
+            {design.layers.length === 0 && <p className="text-sm text-muted-foreground">Add at least one reinforcement layer.</p>}
           </CardContent>
         </Card>
 
@@ -218,19 +246,51 @@ export function MemberWorkspace() {
               <input type="checkbox" checked={design.endRegion} onChange={(e) => set('endRegion', e.target.checked)} />
               Use end-region transfer stress limits (0.70 f′ci / 6√f′ci)
             </label>
+            <label className="col-span-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={design.biaxial} onChange={(e) => set('biaxial', e.target.checked)} />
+              Biaxial interaction analysis (φMx–φMy)
+            </label>
           </CardContent>
         </Card>
       </div>
 
       {/* ── Results ── */}
-      <div className="lg:col-span-7">
+      <div className="space-y-6 lg:col-span-7">
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onReport} disabled={!analysis.ok}>
+            <FileText /> Report (PDF)
+          </Button>
+        </div>
+
         {analysis.ok ? (
-          <ResultsPanel analysis={analysis.value} />
+          <>
+            <ResultsPanel analysis={analysis.value} />
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Steel stress-strain (power formula)</CardTitle>
+                <CardDescription>Devalapura–Tadros curves for all grades; current operating points overlaid.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-center">
+                <StressStrainChart result={analysis.value.flexure} />
+              </CardContent>
+            </Card>
+
+            {biaxial && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Biaxial interaction (φMx–φMy)</CardTitle>
+                  <CardDescription>Strength envelope by neutral-axis-orientation sweep, with cracking envelope and NA-aligned anchors.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                  <InteractionDiagram result={biaxial} />
+                </CardContent>
+              </Card>
+            )}
+          </>
         ) : (
           <Card>
-            <CardContent className="py-8 text-sm text-destructive">
-              Analysis error: {analysis.error}
-            </CardContent>
+            <CardContent className="py-8 text-sm text-destructive">Analysis error: {analysis.error}</CardContent>
           </Card>
         )}
       </div>
