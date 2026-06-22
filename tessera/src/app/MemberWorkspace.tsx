@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { FileText, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { FileText, FileUp, Plus, Trash2 } from 'lucide-react';
 import { useProjectStore } from '@/store/projectStore';
 import {
   defaultMemberDesign,
@@ -9,6 +9,8 @@ import {
   type MemberDesignInput,
   type ReinfRow,
 } from '@/design/memberDesign';
+import { parseDxf, UNIT_SCALE_TO_INCHES } from '@/dxf/dxfParser';
+import { dxfRingsToSection } from '@/dxf/dxfGeometry';
 import { analyzeMember, type MemberAnalysis } from '@/engine/analyzeMember';
 import { analyzeBiaxial, type BiaxialResult } from '@/engine/beamCalculations';
 import { pmInteraction, momentCapacityAtP, type PMInteractionResult } from '@/engine/columnPM';
@@ -127,6 +129,7 @@ export function MemberWorkspace() {
 
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
+  const isDxf = design.sectionType === 'dxf';
   const isDT = design.sectionType === 'doubletee';
   const isHC = design.sectionType === 'hollowcore';
   const isSandwich = design.sectionType === 'sandwich';
@@ -141,6 +144,39 @@ export function MemberWorkspace() {
       { id: crypto.randomUUID(), gradeId: 'grade60', area: 0.31, depth: design.h - 2.5, fse: 0, kind: 'mild' },
     ]);
   const removeLayer = (i: number) => set('layers', design.layers.filter((_, idx) => idx !== i));
+
+  const dxfInputRef = useRef<HTMLInputElement>(null);
+  const [dxfMsg, setDxfMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  const handleImportDxf = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseDxf(text);
+      const scale = parsed.units ? (UNIT_SCALE_TO_INCHES[parsed.units] ?? 1) : 1;
+      const sec = dxfRingsToSection(parsed.rings, { unitScale: scale, nodes: parsed.nodes });
+      const layers: ReinfRow[] = sec.nodes.map((n) => ({
+        id: crypto.randomUUID(),
+        gradeId: 'grade60',
+        area: 0,
+        depth: n.depth,
+        x: n.x,
+        fse: 0,
+        kind: 'mild',
+      }));
+      setDesign({ sectionType: 'dxf', points: sec.points, holes: sec.holes, h: sec.h, layers });
+      const warn = [...parsed.warnings, ...sec.warnings];
+      setDxfMsg({
+        kind: 'ok',
+        text:
+          `Imported: ${sec.stats.width.toFixed(1)}×${sec.stats.height.toFixed(1)} in, ` +
+          `${sec.stats.openingCount} opening(s), ${sec.stats.nodeCount} reinforcement placeholder(s). ` +
+          `Assign each placeholder's type/size/grade below.` +
+          (warn.length ? ` ⚠ ${warn.join(' ')}` : ''),
+      });
+    } catch (e) {
+      setDxfMsg({ kind: 'error', text: `DXF import failed: ${(e as Error).message}` });
+    }
+  };
 
   const onReport = async () => {
     if (!analysis.ok) return;
@@ -185,7 +221,37 @@ export function MemberWorkspace() {
                 <option value="hollowcore">Hollowcore</option>
                 <option value="sandwich">Sandwich wall</option>
                 <option value="custom">Custom (drawn)</option>
+                <option value="dxf">DXF import</option>
               </select>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                ref={dxfInputRef}
+                type="file"
+                accept=".dxf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleImportDxf(f);
+                  e.target.value = '';
+                }}
+              />
+              <Button size="sm" variant="outline" onClick={() => dxfInputRef.current?.click()}>
+                <FileUp /> Import DXF…
+              </Button>
+              {dxfMsg && (
+                <p
+                  className={
+                    'rounded-md border px-3 py-2 text-xs ' +
+                    (dxfMsg.kind === 'ok'
+                      ? 'border-input bg-accent text-accent-foreground'
+                      : 'border-destructive/40 bg-destructive/10 text-destructive')
+                  }
+                >
+                  {dxfMsg.text}
+                </p>
+              )}
             </div>
 
             {isCustom ? (
@@ -193,6 +259,16 @@ export function MemberWorkspace() {
                 value={{ points: design.points, holes: design.holes }}
                 onChange={(points, holes) => setDesign({ points: points ?? undefined, holes })}
               />
+            ) : isDxf ? (
+              <div className="space-y-2">
+                <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
+                  <SectionView section={input.section} layers={input.layers} />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Imported from DXF (read-only). Each DXF <code>POINT</code> became a generic
+                  reinforcement placeholder — assign type/size/grade/fse below. Re-import to replace.
+                </p>
+              </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">

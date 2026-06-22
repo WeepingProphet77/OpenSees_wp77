@@ -46,7 +46,7 @@ export const MemberDesignSchema = z.object({
   tie: z.enum(['tied', 'spiral']).default('tied'),
   /** Wall handling: impact/suction multiplier on self-weight at stripping. */
   handlingImpact: z.number().positive().default(1.5),
-  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'sandwich', 'custom']).default('rectangular'),
+  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'sandwich', 'custom', 'dxf']).default('rectangular'),
   // Geometry (in)
   b: z.number().positive().default(12), // width (rect) / web width (tee)
   h: z.number().positive().default(28),
@@ -118,10 +118,11 @@ export const gradeOptions = steelPresets.map((p) => ({ id: p.id, name: p.name, c
 export function buildEngineSection(d: MemberDesignInput): Section {
   const base = { fc: d.fc, h: d.h, lambda: d.lambda };
   switch (d.sectionType) {
-    case 'custom': {
+    case 'custom':
+    case 'dxf': {
       const points = d.points ?? [];
       const h = points.length ? Math.max(...points.map((p) => p.y)) : d.h;
-      return { sectionType: 'custom', fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
+      return { sectionType: d.sectionType, fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
     }
     case 'tbeam':
       return { ...base, sectionType: 'tbeam', bw: d.b, bf: d.bf, hf: d.hf };
@@ -143,7 +144,7 @@ export function toppingOf(d: MemberDesignInput): { width: number; thickness: num
 
 /** Horizontal center of the section (default x for reinforcement). */
 export function sectionCenterX(d: MemberDesignInput): number {
-  if (d.sectionType === 'custom' && d.points && d.points.length) {
+  if ((d.sectionType === 'custom' || d.sectionType === 'dxf') && d.points && d.points.length) {
     const xs = d.points.map((p) => p.x);
     return (Math.min(...xs) + Math.max(...xs)) / 2;
   }
