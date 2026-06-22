@@ -1098,12 +1098,16 @@ export interface BiaxialOrientationResult {
   phiMy: number;
   phiF: number;
   epsT: number;
+  /** Applied axial load this orientation was solved for (kip, tension +). */
+  N: number;
   layerResults: LayerResult[];
 }
 
 /**
  * Solve flexural capacity for one neutral-axis orientation.
  * @param phi compression-normal direction angle (NA is perpendicular).
+ * @param axialN applied axial load (kip, tension +); equilibrium is
+ *   ΣF_internal = N (T − Cc = N). Default 0 reproduces the no-axial case.
  * Returns moments (kip-in) and φ-reduced moments about the centroid.
  */
 export function biaxialAtOrientation(
@@ -1113,6 +1117,7 @@ export function biaxialAtOrientation(
   fc: number,
   phi: number,
   decomp: number[] | null = null,
+  axialN = 0,
 ): BiaxialOrientationResult {
   const m = { x: Math.cos(phi), y: Math.sin(phi) };
   const projAll = polySpec.outer.concat(polySpec.extra ? polySpec.extra.flat() : []).map(
@@ -1124,9 +1129,11 @@ export function biaxialAtOrientation(
   const depthOf = (p: Point) => projMax - (p.x * m.x + p.y * m.y);
   const decompOf = (i: number) => (decomp ? decomp[i] : 0);
 
-  // Bisection on NA depth c for ΣF = 0.
+  // Bisection on NA depth c for ΣF = N (T − Cc = N). The bracket extends past
+  // the section depth (c up to depth/β₁·1.5) so the Whitney block can engage the
+  // full section — needed to reach high axial compression on the P-M surface.
   let lo = 1e-4;
-  let hi = projMax - projMin;
+  let hi = ((projMax - projMin) / b1) * 1.5;
   let c = (lo + hi) / 2;
   for (let it = 0; it < 200; it++) {
     c = (lo + hi) / 2;
@@ -1138,7 +1145,7 @@ export function biaxialAtOrientation(
       const eps = steelStrain(depthOf({ x: s.x ?? 0, y: s.depth }), c, s.fse, s.steel.Es, decompOf(i));
       T += powerFormulaStress(eps, s.steel) * s.area;
     }
-    const residual = T - Cc;
+    const residual = T - Cc - axialN;
     if (Math.abs(residual) < 1e-6) break;
     if (residual > 0) lo = c;
     else hi = c;
@@ -1179,6 +1186,7 @@ export function biaxialAtOrientation(
     phiMy: phiF * My,
     phiF,
     epsT,
+    N: axialN,
     layerResults,
   };
 }
@@ -1373,6 +1381,8 @@ export interface BiaxialOpts {
   MxService?: number;
   MyService?: number;
   samples?: number;
+  /** Applied axial load (kip, tension +) for the P-M-M envelope at this N. */
+  axialN?: number;
 }
 
 /** Top-level biaxial analysis result. */
@@ -1413,6 +1423,8 @@ export interface BiaxialResult {
   } | null;
   cracking: BiaxialCrackingResult;
   sectionPolygon: PolySpec;
+  /** Applied axial load (kip, tension +) for this envelope. */
+  axialN: number;
 }
 
 /**
@@ -1424,7 +1436,7 @@ export function analyzeBiaxial(
   steelLayers: SteelLayer[],
   opts: BiaxialOpts = {},
 ): BiaxialResult {
-  const { Mux = 0, Muy = 0, MxService = 0, MyService = 0, samples = 180 } = opts;
+  const { Mux = 0, Muy = 0, MxService = 0, MyService = 0, samples = 180, axialN = 0 } = opts;
   const polySpec = sectionToPolygon(section);
   const props = polygonFullProperties(polySpec);
   const fc = section.fc ?? 0;
@@ -1435,7 +1447,7 @@ export function analyzeBiaxial(
   const raw: BiaxialOrientationResult[] = [];
   for (let i = 0; i < samples; i++) {
     const phi = (i / samples) * 2 * Math.PI;
-    const r = biaxialAtOrientation(polySpec, steelLayers, props, fc, phi, decomp);
+    const r = biaxialAtOrientation(polySpec, steelLayers, props, fc, phi, decomp, axialN);
     raw.push(r);
   }
   const envelope = raw.map((r) => ({
@@ -1450,7 +1462,7 @@ export function analyzeBiaxial(
 
   // NA-aligned anchors (exact orientations).
   const anchor = (phi: number) => {
-    const r = biaxialAtOrientation(polySpec, steelLayers, props, fc, phi, decomp);
+    const r = biaxialAtOrientation(polySpec, steelLayers, props, fc, phi, decomp, axialN);
     return {
       phiMx: r.phiMx / 12,
       phiMy: r.phiMy / 12,
@@ -1497,5 +1509,6 @@ export function analyzeBiaxial(
     demand,
     cracking,
     sectionPolygon: polySpec,
+    axialN,
   };
 }
