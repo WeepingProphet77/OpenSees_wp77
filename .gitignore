@@ -91,3 +91,7 @@ build
 bin
 __pycache__
 *.dat
+# Eigen headers fetched as a build-time dependency for the Tessera WASM build
+# (.gitmodules references this path but the gitlink was never committed; fetched by
+# tessera/fea/fetch-eigen.sh / CI). Header-only; never committed here.
+OTHER/eigenAPI/eigen/

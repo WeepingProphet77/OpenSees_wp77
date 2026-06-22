@@ -1,0 +1,58 @@
+name: Build Tessera FEA WASM
+
+# Phase 3 (build spec §2.2/§11): compile the Tessera FEA solver (C++ + Eigen)
+# to WebAssembly with the Emscripten SDK and publish the `.wasm` + ES6 JS glue
+# as a build artifact. The native OpenSees build (build_cmake.yml) is untouched.
+#
+# This is a REUSABLE workflow: web-deploy.yml calls it (workflow_call) so the
+# deployed app always ships a freshly built, smoke-tested module. It also runs
+# standalone on pushes that touch the FEA sources, and on demand.
+#
+# Fortran note: the only math dependency is Eigen (header-only C++ templates) —
+# no LAPACK / ARPACK / MUMPS / Fortran toolchain. See docs/PHASE3_SPIKE.md.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'tessera/fea/**'
+      - '.github/workflows/wasm-build.yml'
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: Name of the uploaded WASM artifact.
+        value: tessera-fea-wasm
+
+permissions:
+  contents: read
+
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch Eigen headers (build-time dependency, not vendored)
+        run: bash tessera/fea/fetch-eigen.sh
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+          actions-cache-folder: emsdk-cache
+
+      - name: Build FEA module (.wasm + ES6 glue)
+        run: bash tessera/fea/build.sh
+
+      - name: Smoke test (Node — closed-form parity & equilibrium)
+        run: node tessera/fea/test/smoke.mjs
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tessera-fea-wasm
+          path: tessera/public/fea/feaEngine.*
+          if-no-files-found: error
+          retention-days: 7
