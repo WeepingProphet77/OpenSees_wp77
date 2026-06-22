@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Build the Tessera FEA spike (C++ + Eigen) to WebAssembly with Emscripten.
+# Build the Tessera FEA Eigen ORACLE (C++ + Eigen) to WebAssembly with Emscripten.
+#
+# At the Phase-3 go/no-go gate the owner chose the OpenSees-subset engine
+# (fea/opensees/) as the production solver; this self-contained Eigen solver is
+# retained as the independent parity oracle (and a guaranteed-working fallback).
+# It builds to `feaEngineEigen.{mjs,wasm}` (the production OpenSees module is
+# `feaEngine.{mjs,wasm}`).
 #
 # Emits a separate `.wasm` + ES6 JS glue so they can be published as CI
-# artifacts (build spec §11) and lazy-loaded by the FEA Web Worker. The output
-# module runs in `web`, `worker`, and `node` environments (the last so the CI
-# smoke test can solve a portal frame under Node).
+# artifacts (build spec §11). The output module runs in `web`, `worker`, and
+# `node` environments (the last so the CI smoke test can solve under Node).
 #
 # Prerequisites:
 #   - Emscripten SDK activated (`emcc`/`em++` on PATH, e.g. `source emsdk_env.sh`).
@@ -32,7 +37,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-echo "Building $SRC -> $OUT_DIR/feaEngine.mjs (+ feaEngine.wasm)"
+echo "Building $SRC -> $OUT_DIR/feaEngineEigen.mjs (+ feaEngineEigen.wasm)"
 em++ "$SRC" \
   -O3 -std=c++17 \
   -I"$EIGEN_DIR" \
@@ -44,7 +49,7 @@ em++ "$SRC" \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0 \
   -sDYNAMIC_EXECUTION=0 \
-  -o "$OUT_DIR/feaEngine.mjs"
+  -o "$OUT_DIR/feaEngineEigen.mjs"
 
 echo "Build OK:"
-ls -lh "$OUT_DIR"/feaEngine.* | sed 's/^/  /'
+ls -lh "$OUT_DIR"/feaEngineEigen.* | sed 's/^/  /'

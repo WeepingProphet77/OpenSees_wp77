@@ -1,9 +1,13 @@
 # Tessera Phase 3 — FEA / WebAssembly Go/No-Go Spike
 
-> **Status:** Spike complete. **Gate recommendation: GO.**
-> **Scope:** Throwaway spike per build spec §2.2 — prove a minimal linear-elastic
-> 2D frame solve compiled to WebAssembly, driven from a Web Worker behind a
-> single decoupled `FeaEngine` interface, and answer the explicit
+> **Status:** Spike complete and **merged** (#12). **Gate result: GO.**
+> **Gate decision (owner):** **Option B — carve a minimal OpenSees subset to
+> WASM** for the production engine, keeping the Eigen core as the parity oracle.
+> That subset now builds and is validated — see
+> [`PHASE3_OPENSEES_SUBSET.md`](./PHASE3_OPENSEES_SUBSET.md).
+> **Scope (this doc):** the throwaway spike per build spec §2.2 — prove a minimal
+> linear-elastic 2D frame solve compiled to WebAssembly, driven from a Web Worker
+> behind a single decoupled `FeaEngine` interface, and answer the explicit
 > **Fortran-elimination go/no-go gate** before committing to the full engine.
 
 This document is the feasibility report the spec asks for ("Report feasibility
@@ -153,11 +157,14 @@ If the owner prefers to minimize scope/risk and defer nonlinear fidelity,
 
 ---
 
-## 7. The decision at this gate
+## 7. The decision at this gate — RESOLVED
 
 **Confirmed by the spike:** WASM FEA in the browser is feasible and Fortran-free
 → **GO** to build the real frame engine.
 
-**Owner decision requested:** full-engine direction — **Option A** (extend this
-Eigen core) vs **Option B** (carve an OpenSees subset). Recommendation: **B**,
-with this Eigen core retained as the parity oracle/fallback.
+**Owner decision (made):** **Option B** — carve a minimal OpenSees subset to
+WASM for the production engine, with this Eigen core retained as the parity
+oracle/fallback. That subset (real OpenSees `StaticAnalysis` +
+`ProfileSPDLinDirectSolver`) now compiles to WASM and passes the same
+closed-form cases **and** matches the Eigen oracle to round-off. Details and the
+exact file set: [`PHASE3_OPENSEES_SUBSET.md`](./PHASE3_OPENSEES_SUBSET.md).

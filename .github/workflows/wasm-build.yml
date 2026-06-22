@@ -1,15 +1,18 @@
 name: Build Tessera FEA WASM
 
-# Phase 3 (build spec §2.2/§11): compile the Tessera FEA solver (C++ + Eigen)
-# to WebAssembly with the Emscripten SDK and publish the `.wasm` + ES6 JS glue
-# as a build artifact. The native OpenSees build (build_cmake.yml) is untouched.
+# Phase 3 (build spec §2.2/§11): compile the Tessera FEA engines to WebAssembly
+# with the Emscripten SDK and publish the `.wasm` + ES6 JS glue as a build
+# artifact. The native OpenSees build (build_cmake.yml) is untouched.
+#
+# Two modules are built (both pure C++, NO Fortran/LAPACK/ARPACK/MUMPS — see
+# docs/PHASE3_SPIKE.md):
+#   - feaEngine.{mjs,wasm}      production: OpenSees subset (StaticAnalysis +
+#                               ProfileSPDLinDirectSolver)
+#   - feaEngineEigen.{mjs,wasm} oracle: self-contained Eigen direct-stiffness
 #
 # This is a REUSABLE workflow: web-deploy.yml calls it (workflow_call) so the
-# deployed app always ships a freshly built, smoke-tested module. It also runs
+# deployed app always ships freshly built, smoke-tested modules. It also runs
 # standalone on pushes that touch the FEA sources, and on demand.
-#
-# Fortran note: the only math dependency is Eigen (header-only C++ templates) —
-# no LAPACK / ARPACK / MUMPS / Fortran toolchain. See docs/PHASE3_SPIKE.md.
 
 on:
   push:
@@ -43,16 +46,22 @@ jobs:
           version: latest
           actions-cache-folder: emsdk-cache
 
-      - name: Build FEA module (.wasm + ES6 glue)
+      - name: Build production engine — OpenSees subset (.wasm + ES6 glue)
+        run: bash tessera/fea/opensees/build-opensees.sh
+
+      - name: Build oracle engine — Eigen (.wasm + ES6 glue)
         run: bash tessera/fea/build.sh
 
-      - name: Smoke test (Node — closed-form parity & equilibrium)
-        run: node tessera/fea/test/smoke.mjs
+      - name: Smoke test production (Node — closed-form parity & equilibrium)
+        run: node tessera/fea/test/smoke.mjs tessera/public/fea/feaEngine.mjs
+
+      - name: Smoke test oracle (Node — closed-form parity & equilibrium)
+        run: node tessera/fea/test/smoke.mjs tessera/public/fea/feaEngineEigen.mjs
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: tessera-fea-wasm
-          path: tessera/public/fea/feaEngine.*
+          path: tessera/public/fea/feaEngine*
           if-no-files-found: error
           retention-days: 7
