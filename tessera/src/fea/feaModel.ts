@@ -54,6 +54,19 @@ export const FeaElementSchema = z.object({
    * `LinearCrdTransf3d` convention). Omit to use a sensible default. Ignored in 2D.
    */
   vecxz: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  /**
+   * Per-end moment releases (internal hinges). `Mz*` release bending about the
+   * local z axis (the only bending axis in 2D); `My*` release bending about
+   * local y and apply in 3D only.
+   */
+  releases: z
+    .object({
+      Mzi: z.boolean().default(false),
+      Mzj: z.boolean().default(false),
+      Myi: z.boolean().default(false),
+      Myj: z.boolean().default(false),
+    })
+    .default({ Mzi: false, Mzj: false, Myi: false, Myj: false }),
 });
 
 /** Homogeneous support fixity to ground (true = restrained). */
