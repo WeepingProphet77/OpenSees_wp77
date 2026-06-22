@@ -287,6 +287,87 @@ describe.skipIf(!isBuilt('feaEngine'))('WASM elastic 3D frame solve (OpenSees, c
   });
 });
 
+// Member-load library (B3) — concentrated point loads and partial / trapezoidal
+// distributed loads, validated against closed-form cantilever solutions.
+describe.skipIf(!isBuilt('feaEngine'))('WASM member loads — point & partial/trapezoidal (OpenSees)', () => {
+  const E = 29000, I = 100, Iy = 50, A = 10, J = 20, G = 11153.846, L = 100;
+  const cant2d = (extra: Record<string, unknown>) => ({
+    dimension: 2 as const,
+    nodes: [{ id: 'b', x: 0, y: 0 }, { id: 't', x: L, y: 0 }],
+    materials: [{ id: 'm', E }],
+    sections: [{ id: 's', A, I }],
+    elements: [{ id: 'e', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's' }],
+    supports: [{ nodeId: 'b', dx: true, dy: true, rz: true }],
+    ...extra,
+  });
+  const tip = (r: Awaited<ReturnType<FeaEngine['solve']>>) =>
+    r.nodalDisplacements.find((d) => d.nodeId === 't')!;
+  const ef = (r: Awaited<ReturnType<FeaEngine['solve']>>) =>
+    r.elementForces.find((x) => x.elementId === 'e')!;
+
+  it('point load at the tip: dy = PL³/3EI, base M = PL', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(cant2d({ elementPointLoads: [{ elementId: 'e', at: 1, py: -10 }] }));
+    expect(r.converged).toBe(true);
+    expect(near(tip(r).dy, (-10 * L ** 3) / (3 * E * I))).toBe(true);
+    expect(near(Math.abs(ef(r).iM), 10 * L)).toBe(true);
+    engine.dispose();
+  });
+
+  it('point load at midspan: dy = 5PL³/48EI, base M = P·a', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(cant2d({ elementPointLoads: [{ elementId: 'e', at: 0.5, py: -10 }] }));
+    expect(near(tip(r).dy, (5 * -10 * L ** 3) / (48 * E * I))).toBe(true);
+    expect(near(Math.abs(ef(r).iM), 10 * (0.5 * L))).toBe(true);
+    engine.dispose();
+  });
+
+  it('full-span partial load equals a uniform load: dy = wL⁴/8EI', async () => {
+    const engine = makeEngine('feaEngine');
+    const w = -0.02;
+    const r = await engine.solve(cant2d({ elementPartialLoads: [{ elementId: 'e', a: 0, b: 1, wy: w }] }));
+    expect(near(tip(r).dy, (w * L ** 4) / (8 * E * I))).toBe(true);
+    expect(near(Math.abs(ef(r).iM), (Math.abs(w) * L ** 2) / 2)).toBe(true);
+    engine.dispose();
+  });
+
+  it('triangular load (0→w): dy = 11wL⁴/120EI, base M = wL²/3', async () => {
+    const engine = makeEngine('feaEngine');
+    const w = -0.02;
+    const r = await engine.solve(
+      cant2d({ elementPartialLoads: [{ elementId: 'e', a: 0, b: 1, wy: 0, wyEnd: w }] }),
+    );
+    expect(near(tip(r).dy, (11 * w * L ** 4) / (120 * E * I))).toBe(true);
+    expect(near(Math.abs(ef(r).iM), (Math.abs(w) * L ** 2) / 3)).toBe(true);
+    engine.dispose();
+  });
+
+  it('3D point load in local z bends about Iy: dz = PL³/3EIy', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve({
+      dimension: 3,
+      nodes: [{ id: 'b', x: 0, y: 0, z: 0 }, { id: 't', x: L, y: 0, z: 0 }],
+      materials: [{ id: 'm', E, G }],
+      sections: [{ id: 's', A, I, Iy, J }],
+      elements: [{ id: 'e', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's', vecxz: [0, 0, 1] }],
+      supports: [{ nodeId: 'b', dx: true, dy: true, dz: true, rx: true, ry: true, rz: true }],
+      elementPointLoads: [{ elementId: 'e', at: 1, pz: -10 }],
+    });
+    expect(r.converged).toBe(true);
+    expect(near(tip(r).dz ?? 0, (-10 * L ** 3) / (3 * E * Iy))).toBe(true);
+    expect(near(Math.abs(ef(r).iMy ?? 0), 10 * L)).toBe(true);
+    engine.dispose();
+  });
+
+  it('rejects a partial load with b ≤ a', async () => {
+    const engine = makeEngine('feaEngine');
+    await expect(
+      engine.solve(cant2d({ elementPartialLoads: [{ elementId: 'e', a: 0.6, b: 0.4, wy: -0.02 }] })),
+    ).rejects.toThrow(/needs b > a/);
+    engine.dispose();
+  });
+});
+
 if (ENGINES.length === 0) {
   describe('WASM elastic frame solve', () => {
     it.skip('skipped — run `npm run build:wasm` (+ build:wasm:oracle) to build public/fea modules', () => {});
