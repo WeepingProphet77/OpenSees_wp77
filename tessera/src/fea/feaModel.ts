@@ -93,6 +93,44 @@ export const FeaElementLoadSchema = z.object({
   wx: z.number().default(0),
 });
 
+/** Concentrated load applied at a point along an element (local components). */
+export const FeaElementPointLoadSchema = z.object({
+  elementId: z.string(),
+  /** Position from node I as a fraction of element length, in [0, 1]. */
+  at: z.number().min(0).max(1),
+  /** Transverse load in LOCAL y (kip). */
+  py: z.number().default(0),
+  /** Transverse load in LOCAL z (kip; 3D only). */
+  pz: z.number().default(0),
+  /** Axial load in LOCAL x (kip). */
+  px: z.number().default(0),
+});
+
+/**
+ * Partial / trapezoidal distributed load over a span [a, b] (fractions of
+ * length from node I). Magnitudes vary linearly from the `w*` value at `a` to
+ * the `w*End` value at `b`; omit `w*End` for a constant (rectangular) load.
+ */
+export const FeaElementPartialLoadSchema = z.object({
+  elementId: z.string(),
+  /** Start of the loaded span, fraction of length from node I, in [0, 1]. */
+  a: z.number().min(0).max(1),
+  /** End of the loaded span, fraction of length from node I, in [0, 1] (b > a). */
+  b: z.number().min(0).max(1),
+  /** Distributed LOCAL-y load at `a` (kip/in). */
+  wy: z.number().default(0),
+  /** Distributed LOCAL-z load at `a` (kip/in; 3D only). */
+  wz: z.number().default(0),
+  /** Distributed axial (LOCAL-x) load at `a` (kip/in). */
+  wx: z.number().default(0),
+  /** Distributed LOCAL-y load at `b`; defaults to `wy` (rectangular). */
+  wyEnd: z.number().optional(),
+  /** Distributed LOCAL-z load at `b`; defaults to `wz`. */
+  wzEnd: z.number().optional(),
+  /** Distributed axial load at `b`; defaults to `wx`. */
+  wxEnd: z.number().optional(),
+});
+
 export const FeaModelSchema = z.object({
   analysis: z.literal('linearStatic').default('linearStatic'),
   dimension: z.union([z.literal(2), z.literal(3)]).default(2),
@@ -103,6 +141,8 @@ export const FeaModelSchema = z.object({
   supports: z.array(FeaSupportSchema).default([]),
   nodalLoads: z.array(FeaNodalLoadSchema).default([]),
   elementLoads: z.array(FeaElementLoadSchema).default([]),
+  elementPointLoads: z.array(FeaElementPointLoadSchema).default([]),
+  elementPartialLoads: z.array(FeaElementPartialLoadSchema).default([]),
 });
 
 export const FeaNodalDisplacementSchema = z.object({
@@ -202,6 +242,17 @@ export function normalizeFeaModel(input: FeaModelInput): FeaModel {
   }
   for (const l of model.elementLoads) {
     if (!elemIds.has(l.elementId)) fail(`element load references missing element ${l.elementId}`);
+  }
+  for (const l of model.elementPointLoads) {
+    if (!elemIds.has(l.elementId)) fail(`point load references missing element ${l.elementId}`);
+  }
+  for (const l of model.elementPartialLoads) {
+    if (!elemIds.has(l.elementId)) fail(`partial load references missing element ${l.elementId}`);
+    if (l.b <= l.a) fail(`partial load on element ${l.elementId} needs b > a (got a=${l.a}, b=${l.b})`);
+    // A trapezoid's end magnitude defaults to its start magnitude (rectangular).
+    l.wyEnd ??= l.wy;
+    l.wzEnd ??= l.wz;
+    l.wxEnd ??= l.wx;
   }
 
   // 3D models need shear modulus G (torsion) and the out-of-plane section

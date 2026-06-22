@@ -65,6 +65,8 @@ SOURCES=(
   coordTransformation/CrdTransf.cpp
   coordTransformation/LinearCrdTransf2d.cpp coordTransformation/LinearCrdTransf3d.cpp
   domain/load/Beam3dUniformLoad.cpp
+  domain/load/Beam2dPointLoad.cpp domain/load/Beam3dPointLoad.cpp
+  domain/load/Beam2dPartialUniformLoad.cpp domain/load/Beam3dPartialUniformLoad.cpp
   recorder/response/CrdTransfResponse.cpp
   # subdomain (referenced by FE_Element under dead isSubdomain() guards)
   domain/subdomain/Subdomain.cpp

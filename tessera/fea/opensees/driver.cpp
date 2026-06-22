@@ -35,6 +35,8 @@
 #include <LoadPattern.h>
 #include <LinearSeries.h>
 #include <Beam2dUniformLoad.h>
+#include <Beam2dPointLoad.h>
+#include <Beam2dPartialUniformLoad.h>
 #include <Vector.h>
 
 #include <ElasticBeam2d.h>
@@ -42,6 +44,8 @@
 #include <ElasticBeam3d.h>
 #include <LinearCrdTransf3d.h>
 #include <Beam3dUniformLoad.h>
+#include <Beam3dPointLoad.h>
+#include <Beam3dPartialUniformLoad.h>
 #include <Response.h>
 #include <Information.h>
 
@@ -67,7 +71,16 @@ void OPS_printNDMaterial(OPS_Stream &, int) {}
 void OPS_printSectionForceDeformation(OPS_Stream &, int) {}
 
 namespace {
-int len(const val &arr) { return arr["length"].as<int>(); }
+int len(const val &arr) {
+  return (arr.isUndefined() || arr.isNull()) ? 0 : arr["length"].as<int>();
+}
+// Read an optional numeric field, defaulting when it is absent/null. The TS
+// schema (normalizeFeaModel) already fills these defaults; this also keeps the
+// engine robust to hand-built models (e.g. the smoke test) that omit them,
+// rather than silently turning a missing field into NaN.
+double num(const val &v, double def = 0.0) {
+  return (v.isUndefined() || v.isNull()) ? def : v.as<double>();
+}
 }  // namespace
 
 // Solve a linear-elastic 2D frame with OpenSees (3 DOF/node).
@@ -154,9 +167,9 @@ val solve2D(val model) {
     val ld = jsNodalLoads[i];
     const int tag = nodeTag.at(ld["nodeId"].as<std::string>());
     Vector f(3);
-    f(0) = ld["fx"].as<double>();
-    f(1) = ld["fy"].as<double>();
-    f(2) = ld["mz"].as<double>();
+    f(0) = num(ld["fx"]);
+    f(1) = num(ld["fy"]);
+    f(2) = num(ld["mz"]);
     domain->addNodalLoad(new NodalLoad(loadTag++, tag, f), patternTag);
   }
 
@@ -164,9 +177,31 @@ val solve2D(val model) {
   for (int i = 0; i < len(jsElemLoads); ++i) {
     val ld = jsElemLoads[i];
     const int et = elemTag.at(ld["elementId"].as<std::string>());
-    const double wy = ld["wy"].as<double>();  // local transverse uniform load
     // Beam2dUniformLoad(tag, wTrans, wAxial, eleTag)
-    domain->addElementalLoad(new Beam2dUniformLoad(loadTag++, wy, 0.0, et), patternTag);
+    domain->addElementalLoad(
+        new Beam2dUniformLoad(loadTag++, num(ld["wy"]), num(ld["wx"]), et),
+        patternTag);
+  }
+  val jsPointLoads = model["elementPointLoads"];
+  for (int i = 0; i < len(jsPointLoads); ++i) {
+    val ld = jsPointLoads[i];
+    const int et = elemTag.at(ld["elementId"].as<std::string>());
+    // Beam2dPointLoad(tag, Ptransverse, aOverL, eleTag, Paxial)
+    domain->addElementalLoad(
+        new Beam2dPointLoad(loadTag++, num(ld["py"]), num(ld["at"]), et,
+                            num(ld["px"])),
+        patternTag);
+  }
+  val jsPartialLoads = model["elementPartialLoads"];
+  for (int i = 0; i < len(jsPartialLoads); ++i) {
+    val ld = jsPartialLoads[i];
+    const int et = elemTag.at(ld["elementId"].as<std::string>());
+    // Beam2dPartialUniformLoad(tag, wTransA, wTransB, wAxialA, wAxialB, aL, bL, eleTag)
+    domain->addElementalLoad(
+        new Beam2dPartialUniformLoad(loadTag++, num(ld["wy"]), num(ld["wyEnd"]),
+                                     num(ld["wx"]), num(ld["wxEnd"]),
+                                     num(ld["a"]), num(ld["b"]), et),
+        patternTag);
   }
 
   // ---- static analysis assembly (no Fortran in this path) -------------------
@@ -283,7 +318,7 @@ val solve3D(val model) {
     nodeId[tag] = id;
     nx[tag] = nd["x"].as<double>();
     ny[tag] = nd["y"].as<double>();
-    nz[tag] = nd["z"].as<double>();
+    nz[tag] = num(nd["z"]);
     domain->addNode(new Node(tag, 6, nx[tag], ny[tag], nz[tag]));
   }
 
@@ -365,12 +400,12 @@ val solve3D(val model) {
     val ld = jsNodalLoads[i];
     const int tag = nodeTag.at(ld["nodeId"].as<std::string>());
     Vector f(6);
-    f(0) = ld["fx"].as<double>();
-    f(1) = ld["fy"].as<double>();
-    f(2) = ld["fz"].as<double>();
-    f(3) = ld["mx"].as<double>();
-    f(4) = ld["my"].as<double>();
-    f(5) = ld["mz"].as<double>();
+    f(0) = num(ld["fx"]);
+    f(1) = num(ld["fy"]);
+    f(2) = num(ld["fz"]);
+    f(3) = num(ld["mx"]);
+    f(4) = num(ld["my"]);
+    f(5) = num(ld["mz"]);
     domain->addNodalLoad(new NodalLoad(loadTag++, tag, f), patternTag);
   }
   val jsElemLoads = model["elementLoads"];
@@ -379,8 +414,30 @@ val solve3D(val model) {
     const int et = elemTag.at(ld["elementId"].as<std::string>());
     // Beam3dUniformLoad(tag, wy, wz, wx, eleTag)
     domain->addElementalLoad(
-        new Beam3dUniformLoad(loadTag++, ld["wy"].as<double>(), ld["wz"].as<double>(),
-                              ld["wx"].as<double>(), et),
+        new Beam3dUniformLoad(loadTag++, num(ld["wy"]), num(ld["wz"]),
+                              num(ld["wx"]), et),
+        patternTag);
+  }
+  val jsPointLoads = model["elementPointLoads"];
+  for (int i = 0; i < len(jsPointLoads); ++i) {
+    val ld = jsPointLoads[i];
+    const int et = elemTag.at(ld["elementId"].as<std::string>());
+    // Beam3dPointLoad(tag, Py, Pz, aOverL, eleTag, Px)
+    domain->addElementalLoad(
+        new Beam3dPointLoad(loadTag++, num(ld["py"]), num(ld["pz"]),
+                            num(ld["at"]), et, num(ld["px"])),
+        patternTag);
+  }
+  val jsPartialLoads = model["elementPartialLoads"];
+  for (int i = 0; i < len(jsPartialLoads); ++i) {
+    val ld = jsPartialLoads[i];
+    const int et = elemTag.at(ld["elementId"].as<std::string>());
+    // Beam3dPartialUniformLoad(tag, wYa, wZa, wXa, aL, bL, wYb, wZb, wXb, eleTag)
+    domain->addElementalLoad(
+        new Beam3dPartialUniformLoad(loadTag++, num(ld["wy"]), num(ld["wz"]),
+                                     num(ld["wx"]), num(ld["a"]),
+                                     num(ld["b"]), num(ld["wyEnd"]),
+                                     num(ld["wzEnd"]), num(ld["wxEnd"]), et),
         patternTag);
   }
 
