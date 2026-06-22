@@ -15,6 +15,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDirectFeaEngine, type FeaEngine, type FeaModuleFactory } from './FeaEngine';
 import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
+import { normalizeFeaModel } from './feaModel';
+import { computeMemberDiagrams, diagramExtreme } from './feaDiagrams';
 
 const mjsPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.mjs`, import.meta.url));
 const wasmPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.wasm`, import.meta.url));
@@ -421,6 +423,26 @@ describe.skipIf(!isBuilt('feaEngine'))('WASM member end releases (OpenSees)', ()
     expect(near(Math.abs((R(r, 'a').fz ?? 0)), (Math.abs(w) * L) / 2)).toBe(true);
     expect(near(R(r, 'a').my ?? 0, 0, 1, 1e-5)).toBe(true);
     expect(near(EF(r).iMy ?? 0, 0, 1, 1e-5)).toBe(true);
+    engine.dispose();
+  });
+});
+
+// End-to-end of the member-workspace path: a designed member modeled as a
+// simply-supported beam → real solve → reconstructed diagrams.
+describe.skipIf(!isBuilt('feaEngine'))('member diagrams end-to-end (buildSimpleBeam → solve → diagrams)', () => {
+  it('UDL beam: moment peaks at +wL²/8 mid-span, shear runs +wL/2 → −wL/2', async () => {
+    const engine = makeEngine('feaEngine');
+    const L = 360, w = 0.05, E = 4000, A = 200, I = 20000; // member-scale (in, kip/in, ksi)
+    const input = buildSimpleBeam({ length: L, segments: 1, E, A, I, udl: w, support: 'simple' });
+    const result = await engine.solve(input);
+    const [d] = computeMemberDiagrams(normalizeFeaModel(input), result, { stations: 41 });
+
+    expect(d.length).toBe(L);
+    const peak = diagramExtreme(d.moment);
+    expect(near(peak.value, (w * L ** 2) / 8)).toBe(true); // sagging +
+    expect(Math.abs(peak.x - L / 2)).toBeLessThan(L / 40 + 1e-6);
+    expect(near(d.shear[0].value, (w * L) / 2)).toBe(true);
+    expect(near(d.shear[d.shear.length - 1].value, -(w * L) / 2)).toBe(true);
     engine.dispose();
   });
 });
