@@ -72,3 +72,26 @@ describe('analyzeMember — nonprestressed RC beam', () => {
     expect(res.checks.find((c) => c.id === 'flexure-strength')).toBeDefined();
   });
 });
+
+describe('analyzeMember — double-tee floor with composite topping', () => {
+  const res = analyzeMember({
+    section: { sectionType: 'doubletee', bf: 120, hf: 2, h: 24, numStems: 2, stemWidth: 4.75, fc: 6 },
+    fci: 4.2,
+    layers: [{ area: 2.0, depth: 21, fse: 160, steel: GR270 }],
+    L: 600,
+    loads: { superDead: 0.02, live: 0.04 },
+    design: { Av: 0.22, fyt: 60, stirrupSpacing: 12 },
+    prestress: { fpi: 189, strandType: '270LR' },
+    topping: { width: 120, thickness: 2, fc: 4 },
+  });
+
+  it('produces composite results', () => {
+    expect(res.composite).toBeDefined();
+    expect(res.composite!.props.n).toBeCloseTo(Math.sqrt(4 / 6), 4);
+    expect(res.composite!.props.I).toBeGreaterThan(0);
+  });
+  it('adds composite + interface checks to the aggregate', () => {
+    expect(res.checks.find((c) => c.id === 'composite-precast-bottom-tension')).toBeDefined();
+    expect(res.checks.find((c) => c.id === 'interface-horizontal-shear')).toBeDefined();
+  });
+});

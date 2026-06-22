@@ -111,6 +111,9 @@ export function MemberWorkspace() {
 
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
+  const isDT = design.sectionType === 'doubletee';
+  const isHC = design.sectionType === 'hollowcore';
+  const isFloor = isDT || isHC;
   const centerX = sectionCenterX(design);
 
   const updateLayer = (i: number, patch: Partial<ReinfRow>) =>
@@ -160,6 +163,8 @@ export function MemberWorkspace() {
               >
                 <option value="rectangular">Rectangular</option>
                 <option value="tbeam">T-beam</option>
+                <option value="doubletee">Double-tee</option>
+                <option value="hollowcore">Hollowcore</option>
                 <option value="custom">Custom (drawn)</option>
               </select>
             </div>
@@ -172,14 +177,37 @@ export function MemberWorkspace() {
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">
-                  <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" />
+                  {(isDT || isHC) && <NumberField label="Width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
+                  {(design.sectionType === 'rectangular' || isT) && (
+                    <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" />
+                  )}
                   <NumberField label="Depth h" value={design.h} onChange={(v) => set('h', v)} suffix="in" />
-                  {isT && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
-                  {isT && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" />}
+                  {(isT || isDT) && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
+                  {(isT || isDT) && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" />}
+                  {isDT && <NumberField label="# stems" value={design.numStems} onChange={(v) => set('numStems', Math.max(1, Math.round(v)))} />}
+                  {isDT && <NumberField label="Stem width" value={design.stemWidth} onChange={(v) => set('stemWidth', v)} suffix="in" />}
+                  {isHC && <NumberField label="# voids" value={design.numVoids} onChange={(v) => set('numVoids', Math.max(0, Math.round(v)))} />}
+                  {isHC && <NumberField label="Void dia." value={design.voidDiameter} onChange={(v) => set('voidDiameter', v)} suffix="in" />}
+                  {isHC && <NumberField label="Void depth" value={design.voidCenterDepth} onChange={(v) => set('voidCenterDepth', v)} suffix="in" />}
                 </div>
                 <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
                   <SectionView section={input.section} layers={input.layers} />
                 </div>
+                {isFloor && (
+                  <div className="rounded-lg border p-3">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" checked={design.hasTopping} onChange={(e) => set('hasTopping', e.target.checked)} />
+                      Composite cast-in-place topping
+                    </label>
+                    {design.hasTopping && (
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <NumberField label="Width" value={design.toppingWidth} onChange={(v) => set('toppingWidth', v)} suffix="in" />
+                        <NumberField label="Thickness" value={design.toppingThickness} onChange={(v) => set('toppingThickness', v)} suffix="in" />
+                        <NumberField label="f′c" value={design.toppingFc} onChange={(v) => set('toppingFc', v)} suffix="ksi" />
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </CardContent>
@@ -308,6 +336,44 @@ export function MemberWorkspace() {
         {analysis.ok ? (
           <>
             <ResultsPanel analysis={analysis.value} />
+
+            {analysis.value.composite && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Composite topping (staged / transformed)</CardTitle>
+                  <CardDescription>
+                    Bare precast carries transfer + wet topping; composite section carries SDL + live.
+                    Topping transformed by n = √(f′c,topping/f′c,precast). Interface shear per §16.4.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">n (modular)</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.props.n.toFixed(3)}</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Composite Ic</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.props.I.toFixed(0)} in⁴</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Depth H</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.props.H.toFixed(1)} in</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Precast bottom</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.stresses.precastBottom.toFixed(3)} ksi</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Topping top</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.stresses.toppingTop.toFixed(3)} ksi</div>
+                  </div>
+                  <div className="rounded-lg border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase text-muted-foreground">Interface φVnh</div>
+                    <div className="font-mono font-semibold">{analysis.value.composite.interface.phiVnh.toFixed(1)} kip</div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
