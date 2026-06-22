@@ -25,6 +25,8 @@ export const ReinfRowSchema = z.object({
   area: z.number().nonnegative().default(0),
   /** Depth from the top (compression) fiber (in). */
   depth: z.number().nonnegative().default(0),
+  /** Horizontal position (in) — used for biaxial analysis. */
+  x: z.number().optional(),
   /** Effective prestress (ksi); 0 for mild steel. */
   fse: z.number().nonnegative().default(0),
   kind: z.enum(['mild', 'strand']).default('mild'),
@@ -32,14 +34,21 @@ export const ReinfRowSchema = z.object({
 
 export type ReinfRow = z.infer<typeof ReinfRowSchema>;
 
+const PointSchema = z.object({ x: z.number(), y: z.number() });
+
 export const MemberDesignSchema = z.object({
   name: z.string().default('Beam 1'),
-  sectionType: z.enum(['rectangular', 'tbeam']).default('rectangular'),
+  sectionType: z.enum(['rectangular', 'tbeam', 'custom']).default('rectangular'),
   // Geometry (in)
   b: z.number().positive().default(12), // width (rect) / web width (tee)
   h: z.number().positive().default(28),
   bf: z.number().positive().default(36), // flange width (tee)
   hf: z.number().positive().default(4), // flange thickness (tee)
+  // Custom polygon (sectionType === 'custom')
+  points: z.array(PointSchema).optional(),
+  holes: z.array(z.array(PointSchema)).optional(),
+  /** Run the biaxial φMx–φMy interaction analysis (uses per-layer x). */
+  biaxial: z.boolean().default(false),
   // Materials
   fc: z.number().positive().default(6),
   fci: z.number().positive().default(4.2),
@@ -80,10 +89,15 @@ export function gradeById(id: string): PowerFormulaSteel {
 /** Grades available for the reinforcement editor. */
 export const gradeOptions = steelPresets.map((p) => ({ id: p.id, name: p.name, category: p.category }));
 
-/** Map the flat design model into the engine's member-analysis input. */
-export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
+/** Build the engine section from the design model (parametric or custom polygon). */
+export function buildEngineSection(d: MemberDesignInput): Section {
+  if (d.sectionType === 'custom') {
+    const points = d.points ?? [];
+    const h = points.length ? Math.max(...points.map((p) => p.y)) : d.h;
+    return { sectionType: 'custom', fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
+  }
   const isT = d.sectionType === 'tbeam';
-  const section: Section = {
+  return {
     sectionType: d.sectionType,
     fc: d.fc,
     h: d.h,
@@ -92,9 +106,26 @@ export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
     bf: isT ? d.bf : d.b,
     hf: isT ? d.hf : d.h,
   };
+}
+
+/** Horizontal center of the section (default x for reinforcement). */
+export function sectionCenterX(d: MemberDesignInput): number {
+  if (d.sectionType === 'custom' && d.points && d.points.length) {
+    const xs = d.points.map((p) => p.x);
+    return (Math.min(...xs) + Math.max(...xs)) / 2;
+  }
+  if (d.sectionType === 'tbeam') return d.bf / 2;
+  return d.b / 2;
+}
+
+/** Map the flat design model into the engine's member-analysis input. */
+export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
+  const section = buildEngineSection(d);
+  const centerX = sectionCenterX(d);
   const layers: SteelLayer[] = d.layers.map((r) => ({
     area: r.area,
     depth: r.depth,
+    x: r.x ?? centerX,
     fse: r.kind === 'strand' ? r.fse : 0,
     steel: gradeById(r.gradeId),
   }));
