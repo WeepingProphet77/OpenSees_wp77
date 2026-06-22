@@ -1,10 +1,16 @@
-# Tessera Phase 3 — OpenSees subset → WebAssembly (production engine, B1)
+# Tessera Phase 3 — OpenSees subset → WebAssembly (production engine, B1–B2)
 
-> **Status:** Increment **B1 complete** — a minimal subset of this OpenSees fork
-> compiles to WebAssembly and runs a real linear-elastic 2D-frame
-> `StaticAnalysis`, validated against closed-form solutions **and** the Eigen
-> parity oracle. This is the production path chosen at the Phase-3 go/no-go gate
-> (see [`PHASE3_SPIKE.md`](./PHASE3_SPIKE.md), Option B).
+> **Status:** **B1 + B2 complete.** A minimal subset of this OpenSees fork
+> compiles to WebAssembly and runs real linear-elastic **2D and 3D** frame
+> `StaticAnalysis`, validated against closed-form solutions **and** (in 2D) the
+> Eigen parity oracle. This is the production path chosen at the Phase-3 go/no-go
+> gate (see [`PHASE3_SPIKE.md`](./PHASE3_SPIKE.md), Option B).
+>
+> - **B1** — 2D frames: `ElasticBeam2d` + `LinearCrdTransf2d`, 3 DOF/node.
+> - **B2** — 3D frames: `ElasticBeam3d` + `LinearCrdTransf3d`, 6 DOF/node
+>   (axial, biaxial bending, **torsion**), element orientation via a `vecxz`
+>   vector (OpenSees local x-z plane convention; default supplied). Local end
+>   forces use OpenSees' own `localForce` element response.
 
 ## What this is
 
@@ -29,14 +35,15 @@ is purely a build/asset concern.
 
 ## The subset
 
-~76 OpenSees `.cpp` translation units (listed in `build-opensees.sh`) plus the
+~80 OpenSees `.cpp` translation units (listed in `build-opensees.sh`) plus the
 driver, across: `matrix` (Matrix/Vector/ID), `tagged` storage, `actor`
 (MovableObject/Channel/FEM_ObjectBroker base), `domain` (Domain + single-domain
 iterators, Node, SP/MP constraints, LoadPattern/LinearSeries, loads incl.
-`Beam2dUniformLoad`), `element` (Element/ElasticBeam2d), `coordTransformation`
-(CrdTransf/LinearCrdTransf2d), the `analysis` machinery (AnalysisModel,
-StaticAnalysis, LoadControl, Linear, PlainHandler, PlainNumberer, FE_Element,
-DOF_Group), `system_of_eqn/linearSOE/profileSPD`, and `graph`.
+`Beam2dUniformLoad`/`Beam3dUniformLoad`), `element`
+(Element/ElasticBeam2d/ElasticBeam3d), `coordTransformation`
+(CrdTransf/LinearCrdTransf2d/LinearCrdTransf3d), the `analysis` machinery
+(AnalysisModel, StaticAnalysis, LoadControl, Linear, PlainHandler, PlainNumberer,
+FE_Element, DOF_Group), `system_of_eqn/linearSOE/profileSPD`, and `graph`.
 
 **No Fortran / LAPACK / ARPACK / MUMPS / external libs** — confirmed by building
 with only `-I` paths into `SRC/` (the spike's gate finding, now realized).
@@ -77,21 +84,26 @@ The compile was clean; the work was resolving the link graph minimally:
 
 `npm test` runs (against the real WASM, when built):
 
-- The closed-form suite (cantilever `PL³/3EI`, simply-supported UDL `5wL⁴/384EI`
-  & `wL²/8`, portal-frame equilibrium) for **both** engines.
-- A **cross-engine parity** test: OpenSees vs Eigen nodal displacements &
-  reactions agree to ~1e-6 on a portal frame with combined lateral + gravity
-  load.
+- **2D** closed-form suite (cantilever `PL³/3EI`, simply-supported UDL
+  `5wL⁴/384EI` & `wL²/8`, portal-frame equilibrium) for **both** engines, plus a
+  **cross-engine parity** test (OpenSees vs Eigen displacements & reactions agree
+  to ~1e-6 on a portal frame with combined lateral + gravity load).
+- **3D** closed-form suite (OpenSees): strong-axis bending `PL³/3EIz`, weak-axis
+  bending `PL³/3EIy`, **torsion** `TL/GJ`, axial `PL/EA`, and 3D static
+  equilibrium of an L-frame; plus validation that a 3D model missing `G`/`Iy`/`J`
+  is rejected.
 
-Plus the Node smoke test (`fea/test/smoke.mjs`) on each module in CI.
+Plus the Node smoke test (`fea/test/smoke.mjs`, 2D) on each module in CI.
 
-## Next increments (post-B1)
+## Next increments (post-B2)
 
-- **B2:** 3D frames — `ElasticBeam3d` + `LinearCrdTransf3d`, 6 DOF/node, and the
-  RISA-3D local-axis β roll convention (build spec §4.1); extend the model schema
-  to 3D.
+- **B2 (done):** 3D frames — `ElasticBeam3d` + `LinearCrdTransf3d`, 6 DOF/node,
+  element orientation via `vecxz`. A future refinement is to expose the RISA-3D
+  β roll angle (build spec §4.1) as a friendlier alternative to `vecxz` and map
+  it to the transform.
 - **B3:** broaden load/element coverage (point loads, member end releases),
-  reactions/among multiple patterns & combos.
+  multiple load patterns & combinations, rigid end offsets (`rigJntOffset`) for
+  the Vierendeel equivalent frame (§5.5).
 - **B4:** fiber-section moment–curvature (`forceBeamColumn`/fiber sections) for
   higher-fidelity capacity (§6) — the reason Option B was chosen over extending
   the Eigen core.

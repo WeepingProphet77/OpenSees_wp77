@@ -174,8 +174,121 @@ describe.skipIf(!isBuilt('feaEngine') || !isBuilt('feaEngineEigen'))(
   },
 );
 
+// 3D frames — production (OpenSees) engine only; closed-form parity for bending
+// about each local axis, torsion, and axial, plus 3D static equilibrium.
+describe.skipIf(!isBuilt('feaEngine'))('WASM elastic 3D frame solve (OpenSees, closed-form parity)', () => {
+  const E = 29000, G = 11153.846, A = 10, Iz = 100, Iy = 50, J = 20, L = 100;
+  // Cantilever along global X with local x=X, y=Y, z=Z (vecxz = global Z).
+  const cantilever = (load: Record<string, number>) => ({
+    dimension: 3 as const,
+    nodes: [
+      { id: 'b', x: 0, y: 0, z: 0 },
+      { id: 't', x: L, y: 0, z: 0 },
+    ],
+    materials: [{ id: 'm', E, G }],
+    sections: [{ id: 's', A, I: Iz, Iy, J }],
+    elements: [{ id: 'e', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's', vecxz: [0, 0, 1] as [number, number, number] }],
+    supports: [{ nodeId: 'b', dx: true, dy: true, dz: true, rx: true, ry: true, rz: true }],
+    nodalLoads: [{ nodeId: 't', ...load }],
+  });
+
+  it('strong-axis bending (load in local −y): tip dy = PL³/3EIz, base Mz = PL', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(cantilever({ fy: -10 }));
+    expect(r.converged).toBe(true);
+    const t = r.nodalDisplacements.find((d) => d.nodeId === 't')!;
+    expect(near(t.dy, (-10 * L ** 3) / (3 * E * Iz))).toBe(true);
+    expect(near(t.dz ?? 0, 0, 1, 1e-6)).toBe(true);
+    const e = r.elementForces.find((x) => x.elementId === 'e')!;
+    expect(near(Math.abs(e.iM), 10 * L)).toBe(true); // |Mz| = PL
+    expect(near(e.iT ?? 0, 0, 1, 1e-6)).toBe(true);
+    expect(near(e.iMy ?? 0, 0, 1, 1e-6)).toBe(true);
+    engine.dispose();
+  });
+
+  it('weak-axis bending (load in local −z): tip dz = PL³/3EIy, base My = PL', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(cantilever({ fz: -10 }));
+    expect(r.converged).toBe(true);
+    const t = r.nodalDisplacements.find((d) => d.nodeId === 't')!;
+    expect(near(t.dz ?? 0, (-10 * L ** 3) / (3 * E * Iy))).toBe(true);
+    expect(near(t.dy, 0, 1, 1e-6)).toBe(true);
+    const e = r.elementForces.find((x) => x.elementId === 'e')!;
+    expect(near(Math.abs(e.iMy ?? 0), 10 * L)).toBe(true); // |My| = PL
+    engine.dispose();
+  });
+
+  it('torsion: tip twist rx = TL/GJ, base T = applied torque', async () => {
+    const engine = makeEngine('feaEngine');
+    const torque = 500;
+    const r = await engine.solve(cantilever({ mx: torque }));
+    expect(r.converged).toBe(true);
+    const t = r.nodalDisplacements.find((d) => d.nodeId === 't')!;
+    expect(near(t.rx ?? 0, (torque * L) / (G * J))).toBe(true);
+    const e = r.elementForces.find((x) => x.elementId === 'e')!;
+    expect(near(Math.abs(e.iT ?? 0), torque)).toBe(true);
+    engine.dispose();
+  });
+
+  it('axial: tip dx = PL/EA, axial force N = P', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve(cantilever({ fx: 100 }));
+    expect(r.converged).toBe(true);
+    const t = r.nodalDisplacements.find((d) => d.nodeId === 't')!;
+    expect(near(t.dx, (100 * L) / (E * A))).toBe(true);
+    const e = r.elementForces.find((x) => x.elementId === 'e')!;
+    expect(near(Math.abs(e.iN), 100)).toBe(true);
+    engine.dispose();
+  });
+
+  it('3D L-frame: reactions balance an applied 3-component tip force', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.solve({
+      dimension: 3,
+      nodes: [
+        { id: 'a', x: 0, y: 0, z: 0 },
+        { id: 'b', x: 120, y: 0, z: 0 },
+        { id: 'c', x: 120, y: 0, z: 96 },
+      ],
+      materials: [{ id: 'm', E, G }],
+      sections: [{ id: 's', A, I: Iz, Iy, J }],
+      elements: [
+        { id: 'e1', nodeI: 'a', nodeJ: 'b', materialId: 'm', sectionId: 's' },
+        { id: 'e2', nodeI: 'b', nodeJ: 'c', materialId: 'm', sectionId: 's' },
+      ],
+      supports: [{ nodeId: 'a', dx: true, dy: true, dz: true, rx: true, ry: true, rz: true }],
+      nodalLoads: [{ nodeId: 'c', fx: 3, fy: -5, fz: 2 }],
+    });
+    expect(r.converged).toBe(true);
+    const R = r.reactions.find((x) => x.nodeId === 'a')!;
+    expect(near(R.fx, -3)).toBe(true);
+    expect(near(R.fy, 5)).toBe(true);
+    expect(near(R.fz ?? 0, -2)).toBe(true);
+    engine.dispose();
+  });
+
+  it('rejects a 3D model missing G / Iy / J', async () => {
+    const engine = makeEngine('feaEngine');
+    await expect(
+      engine.solve({
+        dimension: 3,
+        nodes: [
+          { id: 'b', x: 0, y: 0, z: 0 },
+          { id: 't', x: L, y: 0, z: 0 },
+        ],
+        materials: [{ id: 'm', E }], // missing G
+        sections: [{ id: 's', A, I: Iz }], // missing Iy, J
+        elements: [{ id: 'e', nodeI: 'b', nodeJ: 't', materialId: 'm', sectionId: 's' }],
+        supports: [{ nodeId: 'b', dx: true, dy: true, dz: true, rx: true, ry: true, rz: true }],
+        nodalLoads: [{ nodeId: 't', fy: -10 }],
+      }),
+    ).rejects.toThrow(/missing shear modulus G|missing Iy|missing torsional constant J/);
+    engine.dispose();
+  });
+});
+
 if (ENGINES.length === 0) {
-  describe('WASM elastic 2D frame solve', () => {
+  describe('WASM elastic frame solve', () => {
     it.skip('skipped — run `npm run build:wasm` (+ build:wasm:oracle) to build public/fea modules', () => {});
   });
 }

@@ -11,10 +11,10 @@ them):
 | `feaEngine.{mjs,wasm}` | **production** | `opensees/driver.cpp` + OpenSees `SRC/` | OpenSees `StaticAnalysis` + `ProfileSPDLinDirectSolver` |
 | `feaEngineEigen.{mjs,wasm}` | **oracle / fallback** | `src/fea_solver.cpp` | self-contained Eigen direct-stiffness |
 
-Both speak the identical embind `solve(model) -> result` API and carry the same
-2-node, 3-DOF/node elastic beam-column physics. **No Fortran / LAPACK / ARPACK /
-MUMPS** in either. The OpenSees subset is the production engine (chosen at the
-Phase-3 gate); the Eigen solver is the independent parity oracle. See
+Both speak the identical embind `solve(model) -> result` API. The OpenSees
+subset (production) solves **2D (3 DOF/node) and 3D (6 DOF/node) frames** —
+axial, biaxial bending, and torsion; the Eigen oracle covers the 2D path as an
+independent parity check. **No Fortran / LAPACK / ARPACK / MUMPS** in either. See
 [`../../docs/PHASE3_SPIKE.md`](../../docs/PHASE3_SPIKE.md) (go/no-go) and
 [`../../docs/PHASE3_OPENSEES_SUBSET.md`](../../docs/PHASE3_OPENSEES_SUBSET.md) (B1).
 

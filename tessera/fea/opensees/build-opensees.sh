@@ -59,10 +59,12 @@ SOURCES=(
   domain/pattern/TimeSeries.cpp domain/pattern/LinearSeries.cpp
   domain/load/Load.cpp element/ElementalLoad.cpp domain/load/Beam2dUniformLoad.cpp
   domain/load/NodalLoadIter.cpp domain/load/ElementalLoadIter.cpp
-  # element + transform
+  # element + transform (2D and 3D)
   element/Element.cpp element/Information.cpp
-  element/elasticBeamColumn/ElasticBeam2d.cpp
-  coordTransformation/CrdTransf.cpp coordTransformation/LinearCrdTransf2d.cpp
+  element/elasticBeamColumn/ElasticBeam2d.cpp element/elasticBeamColumn/ElasticBeam3d.cpp
+  coordTransformation/CrdTransf.cpp
+  coordTransformation/LinearCrdTransf2d.cpp coordTransformation/LinearCrdTransf3d.cpp
+  domain/load/Beam3dUniformLoad.cpp
   recorder/response/CrdTransfResponse.cpp
   # subdomain (referenced by FE_Element under dead isSubdomain() guards)
   domain/subdomain/Subdomain.cpp

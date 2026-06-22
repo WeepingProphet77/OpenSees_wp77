@@ -15,7 +15,7 @@ describe('FeaModel schema & normalization', () => {
     });
     expect(m.analysis).toBe('linearStatic');
     expect(m.dimension).toBe(2);
-    expect(m.elements[0].type).toBe('elasticBeamColumn2d');
+    expect(m.elements[0].type).toBe('elasticBeamColumn');
     expect(m.supports).toEqual([]);
     expect(m.nodalLoads).toEqual([]);
     expect(m.elementLoads).toEqual([]);
@@ -101,7 +101,7 @@ describe('FEA builders', () => {
     expect(fixed.nodes).toHaveLength(4);
     expect(fixed.elements.map((e) => e.id)).toEqual(['colL', 'colR', 'beam']);
     expect(fixed.supports.every((s) => s.rz)).toBe(true);
-    expect(fixed.nodalLoads).toEqual([{ nodeId: 'tl', fx: 5, fy: 0, mz: 0 }]);
+    expect(fixed.nodalLoads).toEqual([{ nodeId: 'tl', fx: 5, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 }]);
 
     const pinned = normalizeFeaModel(buildPortalFrame({ span: 240, height: 144, E: 4000, A: 12, I: 300, base: 'pinned' }));
     expect(pinned.supports.every((s) => s.rz)).toBe(false);
@@ -109,7 +109,7 @@ describe('FEA builders', () => {
 
   it('buildPortalFrame applies beam gravity as a downward local load', () => {
     const m = normalizeFeaModel(buildPortalFrame({ span: 240, height: 144, E: 4000, A: 12, I: 300, beamGravity: 0.02 }));
-    expect(m.elementLoads).toEqual([{ elementId: 'beam', wy: -0.02 }]);
+    expect(m.elementLoads).toEqual([{ elementId: 'beam', wy: -0.02, wz: 0, wx: 0 }]);
   });
 
   it('buildSimpleBeam discretizes into N elements with the right supports', () => {
@@ -120,7 +120,9 @@ describe('FEA builders', () => {
     expect(simple.supports.map((s) => s.nodeId)).toEqual(['n0', 'n4']);
 
     const cant = normalizeFeaModel(buildSimpleBeam({ length: 120, segments: 2, E: 4000, A: 10, I: 200, support: 'cantilever' }));
-    expect(cant.supports).toEqual([{ nodeId: 'n0', dx: true, dy: true, rz: true }]);
+    expect(cant.supports).toEqual([
+      { nodeId: 'n0', dx: true, dy: true, dz: false, rx: false, ry: false, rz: true },
+    ]);
   });
 });
 
