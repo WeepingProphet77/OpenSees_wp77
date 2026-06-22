@@ -38,6 +38,12 @@ const PointSchema = z.object({ x: z.number(), y: z.number() });
 
 export const MemberDesignSchema = z.object({
   name: z.string().default('Beam 1'),
+  /** Member type. 'column' enables the P-M interaction check. */
+  memberType: z.enum(['beam', 'column']).default('beam'),
+  /** Factored axial demand for a column (kip, compression +). */
+  axialPu: z.number().default(0),
+  /** Column transverse confinement (affects the φPn,max cap). */
+  tie: z.enum(['tied', 'spiral']).default('tied'),
   sectionType: z.enum(['rectangular', 'tbeam', 'custom']).default('rectangular'),
   // Geometry (in)
   b: z.number().positive().default(12), // width (rect) / web width (tee)

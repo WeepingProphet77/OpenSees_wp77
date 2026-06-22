@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeBiaxial } from './beamCalculations';
-import { pmInteraction } from './columnPM';
+import { pmInteraction, momentCapacityAtP } from './columnPM';
 import steelPresets from './steelPresets';
 
 const GR60 = steelPresets.find((p) => p.id === 'grade60')!;
@@ -47,5 +47,16 @@ describe('pmInteraction — column P-M curve', () => {
   it('spiral columns get a higher cap than tied', () => {
     const spiral = pmInteraction(section, layers, { tie: 'spiral' });
     expect(spiral.phiPnMax).toBeGreaterThan(r.phiPnMax);
+  });
+
+  it('momentCapacityAtP interpolates and clamps', () => {
+    const lo = r.points.reduce((a, b) => (a.P < b.P ? a : b));
+    const hi = r.points.reduce((a, b) => (a.P > b.P ? a : b));
+    // Mid-axial capacity is finite and within the curve's moment range.
+    const mMid = momentCapacityAtP(r, 200);
+    expect(mMid).toBeGreaterThan(0);
+    // Clamps beyond the range.
+    expect(momentCapacityAtP(r, hi.P + 1e6)).toBeCloseTo(hi.phiM, 6);
+    expect(momentCapacityAtP(r, lo.P - 1e6)).toBeCloseTo(lo.phiM, 6);
   });
 });

@@ -54,7 +54,7 @@ export function ResultsPanel({ analysis }: { analysis: MemberAnalysis }) {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid grid-cols-2 gap-2">
               <Stat label="φMₙ" value={formatQuantity(flexure.phiMnFt, 'kip-ft', 1)} sub={`φ = ${flexure.phi.toFixed(2)} (§21.2)`} />
-              <Stat label="Mu (1.2D+1.6L)" value={formatQuantity(demands.Mu / 12, 'kip-ft', 1)} sub="factored demand" />
+              <Stat label="Mu (factored)" value={formatQuantity(demands.Mu / 12, 'kip-ft', 1)} sub={`governs: ${demands.combo} (§5.3)`} />
               <Stat label="Neutral axis c" value={formatQuantity(flexure.c, 'in', 2)} sub={`a = ${flexure.a.toFixed(2)} in`} />
               <Stat label="Net tensile strain εₜ" value={flexure.epsilonT.toFixed(5)} sub={flexure.ductile ? 'tension-controlled' : flexure.transition ? 'transition' : 'compression-controlled'} />
               <Stat label="Mcr" value={formatQuantity(flexure.cracking.McrFt, 'kip-ft', 1)} sub="§24.5 cracking" />

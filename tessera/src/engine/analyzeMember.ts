@@ -19,6 +19,7 @@ import {
 } from './beamCalculations';
 import type { Section, SteelLayer } from './types';
 import { momentAt, shearAt, uniformMidspanMoment } from './statics';
+import { governingStrength } from './loadCombinations';
 import { check, type DesignCheck } from './designChecks/checkTypes';
 import { serviceStressChecks, type ServiceStressResult } from './designChecks/serviceStresses';
 import { shearChecks, type ShearResult } from './designChecks/shear';
@@ -84,6 +85,7 @@ export interface MemberAnalysis {
     VuAtD: number; // factored shear at d from support (kip)
     MuAtD: number; // factored moment at d (kip-in)
     Vmax: number; // factored shear at support (kip)
+    combo: string; // governing ACI 318-19 §5.3 combination
   };
   prestress: { Pi: number; Pe: number; e: number; hasStrands: boolean };
   flexure: BeamResult;
@@ -119,8 +121,11 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
   const Msustained = uniformMidspanMoment(wSelf + wDead + wSuper, L);
   const Mtotal = Msustained + uniformMidspanMoment(wLive, L);
 
-  // Strength demands (1.2D + 1.6L), uniform.
-  const wu = 1.2 * (wSelf + wDead + wSuper) + 1.6 * wLive;
+  // Strength demands via the governing ACI 318-19 §5.3 combination. Uniform
+  // loads scale moment/shear linearly, so the governing factored line load is
+  // the governing factored moment/shear.
+  const gov = governingStrength({ D: wSelf + wDead + wSuper, L: wLive });
+  const wu = gov.value;
   const Mu = uniformMidspanMoment(wu, L);
 
   // Geometry depths.
@@ -259,7 +264,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
 
   return {
     properties: { A, Ig, yCg, yt, yb, Sb, Ec, Eci, wSelf, d, dp, bw },
-    demands: { Mg, Msustained, Mtotal, Mu, VuAtD, MuAtD, Vmax },
+    demands: { Mg, Msustained, Mtotal, Mu, VuAtD, MuAtD, Vmax, combo: gov.combination.name },
     prestress: { Pi, Pe, e, hasStrands },
     flexure,
     stresses,

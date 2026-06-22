@@ -88,3 +88,23 @@ export function pmInteraction(
 
   return { points, Po, phiPnMax, tie };
 }
+
+/**
+ * Factored moment capacity φMn (kip-ft) at a given factored axial demand P
+ * (compression +), by linear interpolation of the P-M curve. Clamps to the
+ * curve's axial range.
+ */
+export function momentCapacityAtP(result: PMInteractionResult, P: number): number {
+  const pts = [...result.points].sort((a, b) => a.P - b.P);
+  if (P <= pts[0].P) return pts[0].phiM;
+  if (P >= pts[pts.length - 1].P) return pts[pts.length - 1].phiM;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (P >= a.P && P <= b.P) {
+      const t = (P - a.P) / (b.P - a.P);
+      return a.phiM + t * (b.phiM - a.phiM);
+    }
+  }
+  return pts[pts.length - 1].phiM;
+}

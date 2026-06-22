@@ -11,6 +11,8 @@ import {
 } from '@/design/memberDesign';
 import { analyzeMember, type MemberAnalysis } from '@/engine/analyzeMember';
 import { analyzeBiaxial, type BiaxialResult } from '@/engine/beamCalculations';
+import { pmInteraction, momentCapacityAtP, type PMInteractionResult } from '@/engine/columnPM';
+import { PMDiagram } from '@/components/diagrams/PMDiagram';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,6 +89,26 @@ export function MemberWorkspace() {
     }
   }, [design.biaxial, input]);
 
+  const isColumn = design.memberType === 'column';
+  const pm = useMemo((): PMInteractionResult | null => {
+    if (!isColumn) return null;
+    try {
+      return pmInteraction(input.section, input.layers, { tie: design.tie });
+    } catch {
+      return null;
+    }
+  }, [isColumn, design.tie, input]);
+
+  // Column P-M demand check: is (Mu, Pu) inside the φ envelope?
+  const pmCheck = useMemo(() => {
+    if (!pm || !analysis.ok) return null;
+    const Pu = design.axialPu; // kip, compression +
+    const Mu = analysis.value.demands.Mu / 12; // kip-ft
+    const capM = momentCapacityAtP(pm, Pu);
+    const axialOk = Pu <= pm.phiPnMax + 1e-6;
+    return { Pu, Mu, capM, pass: axialOk && Mu <= capM + 1e-6 };
+  }, [pm, analysis, design.axialPu]);
+
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
   const centerX = sectionCenterX(design);
@@ -116,9 +138,18 @@ export function MemberWorkspace() {
             <CardTitle className="text-base">Section &amp; geometry</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-1">
-              <Label>Member name</Label>
-              <Input value={design.name} onChange={(e) => set('name', e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Member name</Label>
+                <Input value={design.name} onChange={(e) => set('name', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Member type</Label>
+                <select className={selectClass} value={design.memberType} onChange={(e) => set('memberType', e.target.value as MemberDesignInput['memberType'])}>
+                  <option value="beam">Beam (flexure)</option>
+                  <option value="column">Column (P-M)</option>
+                </select>
+              </div>
             </div>
             <div className="space-y-1">
               <Label>Section type</Label>
@@ -220,6 +251,18 @@ export function MemberWorkspace() {
             <CardTitle className="text-base">Design parameters</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
+            {isColumn && (
+              <>
+                <NumberField label="Axial Pu (factored)" value={design.axialPu} onChange={(v) => set('axialPu', v)} suffix="kip" />
+                <div className="space-y-1">
+                  <Label>Confinement</Label>
+                  <select className={selectClass} value={design.tie} onChange={(e) => set('tie', e.target.value as MemberDesignInput['tie'])}>
+                    <option value="tied">Tied</option>
+                    <option value="spiral">Spiral</option>
+                  </select>
+                </div>
+              </>
+            )}
             <div className="space-y-1">
               <Label>Service class</Label>
               <select className={selectClass} value={design.serviceClass} onChange={(e) => set('serviceClass', e.target.value as 'U' | 'T')}>
@@ -275,6 +318,32 @@ export function MemberWorkspace() {
                 <StressStrainChart result={analysis.value.flexure} />
               </CardContent>
             </Card>
+
+            {pm && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Column interaction (φP–φMₙ)</CardTitle>
+                    <CardDescription>
+                      Axial-extended biaxial sweep (ΣF = N); φ per §21.2.2, cap 0.80/0.85·φ·Po (§22.4.2.1).
+                    </CardDescription>
+                  </div>
+                  {pmCheck && (
+                    <span
+                      className={
+                        'rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                        (pmCheck.pass ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
+                      }
+                    >
+                      {pmCheck.pass ? 'P-M PASS' : 'P-M FAIL'} · φMn@Pu = {pmCheck.capM.toFixed(0)} kip-ft
+                    </span>
+                  )}
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                  <PMDiagram result={pm} demand={pmCheck ? { M: pmCheck.Mu, P: pmCheck.Pu, pass: pmCheck.pass } : undefined} />
+                </CardContent>
+              </Card>
+            )}
 
             {biaxial && (
               <Card>
