@@ -8,10 +8,11 @@ const scaleValues = (pts: DiagramPoint[], k: number): DiagramPoint[] =>
   pts.map((p) => ({ x: p.x, value: p.value * k }));
 
 /**
- * Shear & moment diagrams for the designed member, produced by the OpenSees WASM
- * engine (simply-supported span under the total service uniform load). Interactive:
- * hover/drag across either plot to read V, M, N at any station (a synced cursor),
- * with support reactions shown. Additive — renders nothing until a solve succeeds.
+ * Shear, moment & deflection diagrams for the designed member, produced by the
+ * OpenSees WASM engine (simply-supported span, 16 elements, under the total
+ * service uniform load). Interactive: hover/drag across any plot to read V, M, Δ
+ * (and N) at a station via a synced cursor, with support reactions shown.
+ * Additive — renders nothing until a solve succeeds.
  */
 export function MemberForceDiagrams({
   lengthFt,
@@ -39,21 +40,26 @@ export function MemberForceDiagrams({
   // Live readout at the cursor station (member coords are inches).
   const readout =
     diagram && cursorXFrac != null
-      ? {
-          xFt: (cursorXFrac * diagram.length) / 12,
-          V: interpolateDiagram(diagram.shear, cursorXFrac * diagram.length),
-          Mft: interpolateDiagram(diagram.moment, cursorXFrac * diagram.length) / 12,
-          N: interpolateDiagram(diagram.axial, cursorXFrac * diagram.length),
-        }
+      ? (() => {
+          const x = cursorXFrac * diagram.length;
+          return {
+            xFt: x / 12,
+            V: interpolateDiagram(diagram.shear, x),
+            Mft: interpolateDiagram(diagram.moment, x) / 12,
+            N: interpolateDiagram(diagram.axial, x),
+            defl: interpolateDiagram(diagram.deflection, x),
+          };
+        })()
       : null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Shear &amp; moment (FEA)</CardTitle>
+        <CardTitle>Shear, moment &amp; deflection (FEA)</CardTitle>
         <CardDescription>
           Simply-supported span under the total service load (w = {(w * 12).toFixed(3)} kip/ft),
-          solved by the OpenSees WebAssembly engine. Hover or drag a plot to read values along the span.
+          solved by the OpenSees WebAssembly engine (16 elements). Hover or drag a plot to read
+          values along the span.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -70,6 +76,7 @@ export function MemberForceDiagrams({
                   <span className="text-muted-foreground">x = {readout.xFt.toFixed(2)} ft</span>
                   <span className="text-sky-600 dark:text-sky-400">V = {readout.V.toFixed(2)} kip</span>
                   <span className="text-primary">M = {readout.Mft.toFixed(2)} kip-ft</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">Δ = {readout.defl.toFixed(3)} in</span>
                   {Math.abs(readout.N) > 1e-6 && (
                     <span className="text-amber-600 dark:text-amber-400">N = {readout.N.toFixed(2)} kip</span>
                   )}
@@ -79,7 +86,7 @@ export function MemberForceDiagrams({
               )}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <ForceDiagram
                 title="Shear V"
                 unit="kip"
@@ -97,6 +104,16 @@ export function MemberForceDiagrams({
                 points={scaleValues(diagram.moment, 1 / 12)}
                 length={diagram.length}
                 colorClass="text-primary"
+                cursorXFrac={cursorXFrac}
+                onHover={setCursorXFrac}
+              />
+              <ForceDiagram
+                title="Deflection Δ"
+                unit="in"
+                digits={3}
+                points={diagram.deflection}
+                length={diagram.length}
+                colorClass="text-emerald-600 dark:text-emerald-400"
                 cursorXFrac={cursorXFrac}
                 onHover={setCursorXFrac}
               />

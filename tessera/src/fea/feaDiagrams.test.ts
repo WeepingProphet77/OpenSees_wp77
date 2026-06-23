@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeFeaModel, type FeaResult, type FeaModelInput } from './feaModel';
 import {
+  assembleBeamDiagram,
   computeMemberDiagrams,
   diagramExtreme,
   interpolateDiagram,
@@ -117,6 +118,59 @@ describe('interpolateDiagram', () => {
     expect(interpolateDiagram(pts, -10)).toBe(0);
     expect(interpolateDiagram(pts, 999)).toBe(0);
     expect(interpolateDiagram([], 5)).toBe(0);
+  });
+});
+
+describe('assembleBeamDiagram — stitch elements + deflected shape', () => {
+  // Two co-linear elements (0–60, 60–120) with hand-specified end forces and
+  // nodal dy, so we test purely the offsetting/stitching/positioning.
+  const twoElementModel = normalizeFeaModel({
+    dimension: 2,
+    nodes: [
+      { id: 'n0', x: 0, y: 0 },
+      { id: 'n1', x: 60, y: 0 },
+      { id: 'n2', x: 120, y: 0 },
+    ],
+    materials: [{ id: 'm', E: 29000 }],
+    sections: [{ id: 's', A: 10, I: 100 }],
+    elements: [
+      { id: 'e0', nodeI: 'n0', nodeJ: 'n1', materialId: 'm', sectionId: 's' },
+      { id: 'e1', nodeI: 'n1', nodeJ: 'n2', materialId: 'm', sectionId: 's' },
+    ],
+  });
+  const result: FeaResult = {
+    converged: true, solver: 'test', message: 'ok', residual: 0,
+    reactions: [],
+    nodalDisplacements: [
+      { nodeId: 'n2', dx: 0, dy: -0.5, rz: 0 },
+      { nodeId: 'n0', dx: 0, dy: 0, rz: 0 },
+      { nodeId: 'n1', dx: 0, dy: -0.9, rz: 0 },
+    ],
+    // No member loads → constant shear, no moment growth; just exercise stitching.
+    elementForces: [
+      { elementId: 'e0', iN: 0, iV: 2, iM: 0, jN: 0, jV: 0, jM: 0 },
+      { elementId: 'e1', iN: 0, iV: 2, iM: 0, jN: 0, jV: 0, jM: 0 },
+    ],
+  };
+
+  it('spans the full member length with second-element stations offset', () => {
+    const b = assembleBeamDiagram(twoElementModel, result, { stations: 3 });
+    expect(b.length).toBe(120);
+    expect(b.shear[0].x).toBe(0);
+    expect(b.shear[b.shear.length - 1].x).toBe(120);
+    // a station from the 2nd element (local 30 → global 90) is present
+    expect(b.shear.some((p) => Math.abs(p.x - 90) < 1e-6)).toBe(true);
+    // monotonic non-decreasing x (continuous, no duplicate shared node)
+    for (let i = 1; i < b.shear.length; i++) expect(b.shear[i].x).toBeGreaterThan(b.shear[i - 1].x);
+  });
+
+  it('extracts deflection (dy) at every node, ordered left→right', () => {
+    const b = assembleBeamDiagram(twoElementModel, result, { stations: 3 });
+    expect(b.deflection).toEqual([
+      { x: 0, value: 0 },
+      { x: 60, value: -0.9 },
+      { x: 120, value: -0.5 },
+    ]);
   });
 });
 

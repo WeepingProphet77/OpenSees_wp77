@@ -52,6 +52,22 @@ function groupByElement<T extends { elementId: string }>(items: readonly T[]): M
 }
 
 /**
+ * Append a per-element series onto a running member series, shifting its local
+ * x by `offset` (the element's start position along the member). A point that
+ * lands on the previous point's x is the shared interior node: dropped when the
+ * value matches (continuous diagram) but kept when it jumps (a discontinuity,
+ * e.g. a nodal point load), so the step is preserved.
+ */
+function appendSeries(target: DiagramPoint[], pts: readonly DiagramPoint[], offset: number): void {
+  for (const p of pts) {
+    const x = p.x + offset;
+    const last = target[target.length - 1];
+    if (last && Math.abs(last.x - x) < 1e-6 && Math.abs(last.value - p.value) < 1e-6) continue;
+    target.push({ x, value: p.value });
+  }
+}
+
+/**
  * Reconstruct N/V/M along every member. Pure function of the model + result;
  * does not touch the solver.
  */
@@ -184,4 +200,60 @@ export function summarizeReactions(model: FeaModel, result: FeaResult): SupportR
   return result.reactions
     .map((r) => ({ nodeId: r.nodeId, x: nodeX.get(r.nodeId) ?? 0, fx: r.fx, fy: r.fy, mz: r.mz }))
     .sort((a, b) => a.x - b.x);
+}
+
+/** One continuous member: stitched N/V/M plus its deflected shape. */
+export interface AssembledBeam {
+  /** Total member length, left end to right end. */
+  length: number;
+  axial: DiagramPoint[];
+  shear: DiagramPoint[];
+  moment: DiagramPoint[];
+  /** Transverse deflection (nodal dy) sampled at every node, x from left end. */
+  deflection: DiagramPoint[];
+}
+
+/**
+ * Stitch a straight, horizontally-modeled member that was discretized into
+ * several co-linear elements (as {@link buildSimpleBeam} produces) into ONE
+ * continuous set of N/V/M diagrams, and extract its deflected shape from the
+ * nodal displacements. Per-element diagrams carry a LOCAL x (0..Lₑ); each is
+ * shifted by its start position along the member so the series run end-to-end.
+ *
+ * Deflection is the nodal transverse displacement (dy) sampled at every node —
+ * a polyline through the true cubic shape, exact at the nodes (so the peak is
+ * captured to the node spacing). Intended for the horizontal member workspace.
+ */
+export function assembleBeamDiagram(
+  model: FeaModel,
+  result: FeaResult,
+  opts: DiagramOptions = {},
+): AssembledBeam {
+  const nodeById = new Map(model.nodes.map((n) => [n.id, n]));
+  const x0 = Math.min(...model.nodes.map((n) => n.x));
+  const elStart = (elementId: string): number => {
+    const el = model.elements.find((e) => e.id === elementId);
+    return (el ? (nodeById.get(el.nodeI)?.x ?? x0) : x0) - x0;
+  };
+
+  const perEl = computeMemberDiagrams(model, result, opts);
+  const ordered = [...perEl].sort((a, b) => elStart(a.elementId) - elStart(b.elementId));
+
+  const axial: DiagramPoint[] = [];
+  const shear: DiagramPoint[] = [];
+  const moment: DiagramPoint[] = [];
+  for (const d of ordered) {
+    const off = elStart(d.elementId);
+    appendSeries(axial, d.axial, off);
+    appendSeries(shear, d.shear, off);
+    appendSeries(moment, d.moment, off);
+  }
+
+  const dyByNode = new Map(result.nodalDisplacements.map((d) => [d.nodeId, d.dy]));
+  const deflection = model.nodes
+    .map((n) => ({ x: n.x - x0, value: dyByNode.get(n.id) ?? 0 }))
+    .sort((a, b) => a.x - b.x);
+
+  const length = Math.max(...model.nodes.map((n) => n.x)) - x0;
+  return { length, axial, shear, moment, deflection };
 }

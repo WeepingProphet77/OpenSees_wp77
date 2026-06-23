@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDirectFeaEngine, type FeaEngine, type FeaModuleFactory } from './FeaEngine';
 import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
 import { normalizeFeaModel } from './feaModel';
-import { computeMemberDiagrams, diagramExtreme } from './feaDiagrams';
+import { assembleBeamDiagram, computeMemberDiagrams, diagramExtreme, interpolateDiagram } from './feaDiagrams';
 
 const mjsPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.mjs`, import.meta.url));
 const wasmPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.wasm`, import.meta.url));
@@ -443,6 +443,25 @@ describe.skipIf(!isBuilt('feaEngine'))('member diagrams end-to-end (buildSimpleB
     expect(Math.abs(peak.x - L / 2)).toBeLessThan(L / 40 + 1e-6);
     expect(near(d.shear[0].value, (w * L) / 2)).toBe(true);
     expect(near(d.shear[d.shear.length - 1].value, -(w * L) / 2)).toBe(true);
+    engine.dispose();
+  });
+
+  it('multi-element assembly: continuous M, plus deflected shape ≈ 5wL⁴/384EI at mid', async () => {
+    const engine = makeEngine('feaEngine');
+    const L = 360, w = 0.05, E = 4000, A = 200, I = 20000;
+    const input = buildSimpleBeam({ length: L, segments: 16, E, A, I, udl: w, support: 'simple' });
+    const beam = assembleBeamDiagram(normalizeFeaModel(input), await engine.solve(input), { stations: 3 });
+
+    // Stitched diagrams run the full member, end-to-end.
+    expect(beam.length).toBe(L);
+    expect(near(beam.shear[0].value, (w * L) / 2)).toBe(true);
+    expect(near(interpolateDiagram(beam.moment, L / 2), (w * L ** 2) / 8, 2e-3)).toBe(true);
+
+    // Deflected shape: simply-supported, sags downward, peak at midspan.
+    const midDefl = interpolateDiagram(beam.deflection, L / 2);
+    expect(midDefl).toBeLessThan(0);
+    expect(near(midDefl, (-5 * w * L ** 4) / (384 * E * I), 2e-3)).toBe(true);
+    expect(near(beam.deflection[0].value, 0, 1, 1e-6)).toBe(true); // pinned end
     engine.dispose();
   });
 });

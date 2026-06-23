@@ -13,9 +13,9 @@ import { useEffect, useState } from 'react';
 import { buildSimpleBeam } from './feaBuilders';
 import { normalizeFeaModel } from './feaModel';
 import {
-  computeMemberDiagrams,
+  assembleBeamDiagram,
   summarizeReactions,
-  type MemberDiagram,
+  type AssembledBeam,
   type SupportReaction,
 } from './feaDiagrams';
 import { createWorkerFeaEngine, type FeaEngine } from './FeaEngine';
@@ -41,10 +41,18 @@ export interface MemberBeam {
 
 export interface MemberDiagramsState {
   status: 'idle' | 'loading' | 'ready' | 'unavailable';
-  diagram: MemberDiagram | null;
+  diagram: AssembledBeam | null;
   reactions: SupportReaction[];
   error?: string;
 }
+
+/**
+ * Elements the span is discretized into. Multiple elements give interior nodes
+ * so the solved deflected shape can be traced (a single element only yields the
+ * zero end displacements). 16 keeps the deflection peak well within ~0.4% of the
+ * closed form while staying cheap.
+ */
+const BEAM_SEGMENTS = 16;
 
 const valid = (b: MemberBeam) =>
   [b.lengthIn, b.E, b.A, b.I].every((v) => Number.isFinite(v) && v > 0) && Number.isFinite(b.w);
@@ -61,14 +69,16 @@ export function useMemberDiagrams(beam: MemberBeam): MemberDiagramsState {
     let cancelled = false;
     setState((s) => (s.status === 'ready' ? s : { status: 'loading', diagram: null, reactions: [] }));
 
-    const input = buildSimpleBeam({ length: lengthIn, segments: 1, E, A, I, udl: w, support: 'simple' });
+    const input = buildSimpleBeam({ length: lengthIn, segments: BEAM_SEGMENTS, E, A, I, udl: w, support: 'simple' });
     const model = normalizeFeaModel(input);
     getEngine()
       .solve(input)
       .then((result) => {
         if (cancelled) return;
-        const [diagram] = computeMemberDiagrams(model, result, { stations: 41 });
-        setState({ status: 'ready', diagram: diagram ?? null, reactions: summarizeReactions(model, result) });
+        // 3 stations/element → element ends plus a midpoint; stitched across the
+        // 16 elements that is a smooth member-long curve (~33 points).
+        const diagram = assembleBeamDiagram(model, result, { stations: 3 });
+        setState({ status: 'ready', diagram, reactions: summarizeReactions(model, result) });
       })
       .catch((e: unknown) => {
         if (!cancelled) {
