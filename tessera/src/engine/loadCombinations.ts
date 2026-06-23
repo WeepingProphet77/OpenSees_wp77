@@ -75,3 +75,38 @@ export function serviceValue(loads: LoadSet): number {
 export function gravityStrength(D: number, L: number, Lr = 0): GoverningResult {
   return governingStrength({ D, L, Lr });
 }
+
+/** The serviceability combination D + L (all factors 1.0). */
+export const SERVICE_COMBO: LoadCombination = {
+  name: 'Service',
+  clause: 'ACI 318-19 §24 (D + L)',
+  factors: { D: 1, L: 1 },
+};
+
+/** A gravity combination offered in the member demand-view selector. */
+export interface MemberCombo {
+  id: string;
+  /** Short selector label, D & L only (the member workspace's load set). */
+  label: string;
+  clause: string;
+  combination: LoadCombination;
+  /** True for the unfactored serviceability case (vs. a strength combination). */
+  service: boolean;
+}
+
+/** Gravity combinations for the member force/deflection view: service, 1.4D, 1.2D + 1.6L. */
+export const MEMBER_LOAD_COMBOS: MemberCombo[] = [
+  { id: 'service', label: 'D + L', clause: SERVICE_COMBO.clause, combination: SERVICE_COMBO, service: true },
+  { id: 'u1', label: '1.4D', clause: ACI_318_19_STRENGTH[0].clause, combination: ACI_318_19_STRENGTH[0], service: false },
+  { id: 'u2', label: '1.2D + 1.6L', clause: ACI_318_19_STRENGTH[1].clause, combination: ACI_318_19_STRENGTH[1], service: false },
+];
+
+/**
+ * Scale factor that takes a service-load (D + L) elastic result to a given
+ * gravity combination, for a member carrying only dead and live load. The
+ * structure is linear, so every diagram (V, M, Δ, reactions) scales by this.
+ */
+export function memberLoadFactor(combo: LoadCombination, dead: number, live: number): number {
+  const service = dead + live;
+  return service > 0 ? combinationValue(combo, { D: dead, L: live }) / service : 1;
+}

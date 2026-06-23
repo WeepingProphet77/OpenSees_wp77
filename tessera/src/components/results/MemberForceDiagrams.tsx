@@ -5,6 +5,7 @@ import { StressDiagram } from '@/components/diagrams/StressDiagram';
 import { useMemberDiagrams } from '@/fea/useMemberDiagrams';
 import { interpolateDiagram, type DiagramPoint } from '@/fea/feaDiagrams';
 import { memberStressDistribution } from '@/engine/designChecks/serviceStresses';
+import { MEMBER_LOAD_COMBOS, memberLoadFactor } from '@/engine/loadCombinations';
 
 const scaleValues = (pts: DiagramPoint[], k: number): DiagramPoint[] =>
   pts.map((p) => ({ x: p.x, value: p.value * k }));
@@ -43,6 +44,7 @@ export function MemberForceDiagrams({
   A,
   I,
   w,
+  loads,
   stress,
 }: {
   /** Span (ft). */
@@ -55,13 +57,22 @@ export function MemberForceDiagrams({
   I: number;
   /** Total service uniform load, downward magnitude (kip/in). */
   w: number;
+  /** Dead & live load components (kip/in) → enables the load-combination selector. */
+  loads?: { dead: number; live: number };
   /** Optional prestress/section data → adds service fiber-stress diagrams. */
   stress?: MemberStressInputs;
 }) {
   const { status, diagram, reactions } = useMemberDiagrams({ lengthIn: lengthFt * 12, E, A, I, w });
   const [cursorXFrac, setCursorXFrac] = useState<number | null>(null);
+  const [comboId, setComboId] = useState('service');
 
   if (status === 'idle') return null;
+
+  // The structure is linear-elastic, so the service (D+L) result scales to any
+  // gravity combination by a single factor — no re-solve. Demands (V/M/Δ) scale;
+  // the service fiber stresses below keep the unfactored service moment.
+  const combo = MEMBER_LOAD_COMBOS.find((c) => c.id === comboId) ?? MEMBER_LOAD_COMBOS[0];
+  const factor = loads ? memberLoadFactor(combo.combination, loads.dead, loads.live) : 1;
 
   // Fiber-stress distribution from the solved moment (kip-in, sagging +).
   const stressDist =
@@ -83,10 +94,10 @@ export function MemberForceDiagrams({
           const x = cursorXFrac * diagram.length;
           return {
             xFt: x / 12,
-            V: interpolateDiagram(diagram.shear, x),
-            Mft: interpolateDiagram(diagram.moment, x) / 12,
-            N: interpolateDiagram(diagram.axial, x),
-            defl: interpolateDiagram(diagram.deflection, x),
+            V: interpolateDiagram(diagram.shear, x) * factor,
+            Mft: (interpolateDiagram(diagram.moment, x) / 12) * factor,
+            N: interpolateDiagram(diagram.axial, x) * factor,
+            defl: interpolateDiagram(diagram.deflection, x) * factor,
           };
         })()
       : null;
@@ -96,9 +107,9 @@ export function MemberForceDiagrams({
       <CardHeader>
         <CardTitle>Shear, moment &amp; deflection (FEA)</CardTitle>
         <CardDescription>
-          Simply-supported span under the total service load (w = {(w * 12).toFixed(3)} kip/ft),
-          solved by the OpenSees WebAssembly engine (16 elements). Hover or drag a plot to read
-          values along the span.
+          Simply-supported span solved by the OpenSees WebAssembly engine (16 elements). Demands
+          (V, M, Δ) are shown for the selected gravity load combination; the service fiber stresses
+          below always use the unfactored service moment. Hover or drag a plot to read values.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -108,6 +119,33 @@ export function MemberForceDiagrams({
         )}
         {status === 'ready' && diagram && (
           <div className="space-y-4">
+            {/* load-combination selector */}
+            {loads && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Load combination:</span>
+                <div className="inline-flex overflow-hidden rounded-md border">
+                  {MEMBER_LOAD_COMBOS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setComboId(c.id)}
+                      title={c.clause}
+                      className={`px-2.5 py-1 font-mono transition-colors ${
+                        c.id === comboId ? 'bg-primary text-primary-foreground' : 'bg-card hover:bg-muted'
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                {!combo.service && (
+                  <span className="text-muted-foreground">
+                    factored demands (×{factor.toFixed(2)}) — service stresses below unchanged
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* live cursor readout */}
             <div className="flex min-h-[1.5rem] flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
               {readout ? (
@@ -130,7 +168,7 @@ export function MemberForceDiagrams({
                 title="Shear V"
                 unit="kip"
                 digits={1}
-                points={diagram.shear}
+                points={scaleValues(diagram.shear, factor)}
                 length={diagram.length}
                 colorClass="text-sky-600 dark:text-sky-400"
                 cursorXFrac={cursorXFrac}
@@ -140,7 +178,7 @@ export function MemberForceDiagrams({
                 title="Moment M"
                 unit="kip-ft"
                 digits={1}
-                points={scaleValues(diagram.moment, 1 / 12)}
+                points={scaleValues(diagram.moment, factor / 12)}
                 length={diagram.length}
                 colorClass="text-primary"
                 cursorXFrac={cursorXFrac}
@@ -150,7 +188,7 @@ export function MemberForceDiagrams({
                 title="Deflection Δ"
                 unit="in"
                 digits={3}
-                points={diagram.deflection}
+                points={scaleValues(diagram.deflection, factor)}
                 length={diagram.length}
                 colorClass="text-emerald-600 dark:text-emerald-400"
                 cursorXFrac={cursorXFrac}
@@ -166,10 +204,10 @@ export function MemberForceDiagrams({
                     <span className="text-muted-foreground">
                       {reactions.length === 2 ? (i === 0 ? 'Left support' : 'Right support') : `Support @ ${(r.x / 12).toFixed(1)} ft`}
                     </span>{' '}
-                    <span className="font-mono font-semibold tabular-nums">Rᵧ = {r.fy.toFixed(2)} kip</span>
+                    <span className="font-mono font-semibold tabular-nums">Rᵧ = {(r.fy * factor).toFixed(2)} kip</span>
                     {Math.abs(r.mz) > 1e-6 && (
                       <span className="ml-2 font-mono tabular-nums text-muted-foreground">
-                        M = {(r.mz / 12).toFixed(2)} kip-ft
+                        M = {((r.mz / 12) * factor).toFixed(2)} kip-ft
                       </span>
                     )}
                   </div>

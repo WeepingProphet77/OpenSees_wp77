@@ -446,6 +446,10 @@ export function MemberWorkspace() {
               A={analysis.value.properties.A}
               I={analysis.value.properties.Ig}
               w={analysis.value.properties.wSelf + (design.superDead + design.live) / 12}
+              loads={{
+                dead: analysis.value.properties.wSelf + design.superDead / 12,
+                live: design.live / 12,
+              }}
               stress={
                 analysis.value.stresses
                   ? {
