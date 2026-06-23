@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serviceStressChecks } from './serviceStresses';
+import { serviceStressChecks, fiberStress, memberStressDistribution } from './serviceStresses';
 
 // Rectangular 12×30 in section: A=360, Ig=27000, yt=yb=15.
 const base = {
@@ -61,5 +61,41 @@ describe('serviceStressChecks — options', () => {
     const r = serviceStressChecks({ ...base, Mtotal: 6000 });
     const bottomTension = r.checks.find((c) => c.id === 'service-bottom-tension');
     expect(bottomTension?.status).toBe('fail');
+  });
+});
+
+describe('memberStressDistribution — fiber stresses along the span', () => {
+  // Parabolic total-service moment: 0 at ends, 3500 kip-in at midspan.
+  const moment = [
+    { x: 0, value: 0 },
+    { x: 60, value: 3500 },
+    { x: 120, value: 0 },
+  ];
+  const dist = memberStressDistribution({
+    props: base.props,
+    Pi: base.Pi,
+    Pe: base.Pe,
+    e: base.e,
+    moment,
+    transferRatio: base.Mg / base.Mtotal, // 1500/3500
+  });
+
+  it('service midspan matches the closed-form fiber stress at full Pe & Mtotal', () => {
+    const ref = fiberStress(base.props, base.Pe, base.e, base.Mtotal);
+    expect(dist.service[1].top).toBeCloseTo(ref.top, 9);
+    expect(dist.service[1].bottom).toBeCloseTo(ref.bottom, 9);
+    expect(dist.service[1].bottom).toBeCloseTo(-0.5, 4); // bottom tension (matches checks test)
+  });
+
+  it('at the ends (M=0) only prestress remains: f = P/A ∓ P·e·y/Ig', () => {
+    const end = dist.service[0];
+    expect(end.top).toBeCloseTo(base.Pe / base.props.A - (base.Pe * base.e * base.props.yt) / base.props.Ig, 9);
+    expect(end.bottom).toBeCloseTo(base.Pe / base.props.A + (base.Pe * base.e * base.props.yb) / base.props.Ig, 9);
+  });
+
+  it('transfer stage uses Pi and the self-weight-scaled moment (Mg = ratio·Mtotal)', () => {
+    const ref = fiberStress(base.props, base.Pi, base.e, base.Mg); // 1500 = (1500/3500)·3500
+    expect(dist.transfer[1].top).toBeCloseTo(ref.top, 9);
+    expect(dist.transfer[1].bottom).toBeCloseTo(ref.bottom, 9);
   });
 });

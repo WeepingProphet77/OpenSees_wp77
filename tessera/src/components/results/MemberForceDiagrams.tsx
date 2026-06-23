@@ -1,11 +1,34 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ForceDiagram } from '@/components/diagrams/ForceDiagram';
+import { StressDiagram } from '@/components/diagrams/StressDiagram';
 import { useMemberDiagrams } from '@/fea/useMemberDiagrams';
 import { interpolateDiagram, type DiagramPoint } from '@/fea/feaDiagrams';
+import { memberStressDistribution } from '@/engine/designChecks/serviceStresses';
 
 const scaleValues = (pts: DiagramPoint[], k: number): DiagramPoint[] =>
   pts.map((p) => ({ x: p.x, value: p.value * k }));
+
+/**
+ * Prestress + section data needed to overlay service fiber-stress diagrams on
+ * the solved moment. Optional — omit it (e.g. non-prestressed) and the card
+ * shows only V/M/Δ.
+ */
+export interface MemberStressInputs {
+  props: { A: number; Ig: number; yt: number; yb: number };
+  /** Prestress force at transfer / after losses (kip). */
+  Pi: number;
+  Pe: number;
+  /** Tendon eccentricity below the centroid (in). */
+  e: number;
+  /** Mg/Mtotal — self-weight share of total load; transfer moment = ratio·M(x). */
+  transferRatio: number;
+  /** Allowable stress magnitudes (ksi). */
+  transferCompression: number;
+  transferTension: number;
+  serviceCompression: number;
+  serviceTension: number;
+}
 
 /**
  * Shear, moment & deflection diagrams for the designed member, produced by the
@@ -20,6 +43,7 @@ export function MemberForceDiagrams({
   A,
   I,
   w,
+  stress,
 }: {
   /** Span (ft). */
   lengthFt: number;
@@ -31,11 +55,26 @@ export function MemberForceDiagrams({
   I: number;
   /** Total service uniform load, downward magnitude (kip/in). */
   w: number;
+  /** Optional prestress/section data → adds service fiber-stress diagrams. */
+  stress?: MemberStressInputs;
 }) {
   const { status, diagram, reactions } = useMemberDiagrams({ lengthIn: lengthFt * 12, E, A, I, w });
   const [cursorXFrac, setCursorXFrac] = useState<number | null>(null);
 
   if (status === 'idle') return null;
+
+  // Fiber-stress distribution from the solved moment (kip-in, sagging +).
+  const stressDist =
+    stress && diagram
+      ? memberStressDistribution({
+          props: stress.props,
+          Pi: stress.Pi,
+          Pe: stress.Pe,
+          e: stress.e,
+          moment: diagram.moment,
+          transferRatio: stress.transferRatio,
+        })
+      : null;
 
   // Live readout at the cursor station (member coords are inches).
   const readout =
@@ -135,6 +174,39 @@ export function MemberForceDiagrams({
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* service fiber stresses vs. allowables (ACI 318-19 §24.5) */}
+            {stress && stressDist && (
+              <div className="space-y-2 border-t pt-4">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Service fiber stresses (compression +) — top & bottom along the span vs. ACI §24.5 limits
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <StressDiagram
+                    title="Transfer (Pi, self-wt)"
+                    stations={stressDist.transfer}
+                    length={diagram.length}
+                    compLimit={stress.transferCompression}
+                    tenLimit={stress.transferTension}
+                    compLabel={`≤ ${stress.transferCompression.toFixed(2)} ksi`}
+                    tenLabel={`≥ −${stress.transferTension.toFixed(2)} ksi`}
+                    cursorXFrac={cursorXFrac}
+                    onHover={setCursorXFrac}
+                  />
+                  <StressDiagram
+                    title="Service (Pe, total load)"
+                    stations={stressDist.service}
+                    length={diagram.length}
+                    compLimit={stress.serviceCompression}
+                    tenLimit={stress.serviceTension}
+                    compLabel={`≤ ${stress.serviceCompression.toFixed(2)} ksi`}
+                    tenLabel={`≥ −${stress.serviceTension.toFixed(2)} ksi`}
+                    cursorXFrac={cursorXFrac}
+                    onHover={setCursorXFrac}
+                  />
+                </div>
               </div>
             )}
           </div>
