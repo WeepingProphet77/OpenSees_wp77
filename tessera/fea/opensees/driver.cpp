@@ -668,11 +668,15 @@ val momentCurvature(val spec) {
   const int nStrand = len(spec["strands"]);
   FiberSection2d *section = new FiberSection2d(1, nLayers + nSteel + nStrand, true);
 
+  // Fiber positions are passed measured UPWARD from mid-height, yUp = h/2 − depth
+  // (depth = distance from the top fiber). With FiberSection2d's internal
+  // convention this makes positive curvature = sagging and M > 0 = sagging,
+  // matching the TS design engine.
   int fiberTag = 1;
   const double dy = h / nLayers;
   for (int i = 0; i < nLayers; ++i) {
-    const double depth = (i + 0.5) * dy;  // measured from the top fiber
-    UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, depth);
+    const double depth = (i + 0.5) * dy;  // from the top fiber
+    UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, h * 0.5 - depth);
     section->addFiber(fib);
   }
 
@@ -683,7 +687,7 @@ val momentCurvature(val spec) {
     const double Es = num(s["Es"], 29000.0);
     const double fy = num(s["fy"]);
     ElasticPPMaterial steelTmpl(100 + i, Es, fy / Es);
-    UniaxialFiber2d fib(fiberTag++, steelTmpl, num(s["As"]), num(s["d"]));
+    UniaxialFiber2d fib(fiberTag++, steelTmpl, num(s["As"]), h * 0.5 - num(s["d"]));
     section->addFiber(fib);
   }
 
@@ -700,7 +704,7 @@ val momentCurvature(val spec) {
     const double fse = num(s["fse"], 0.0);  // effective prestress (ksi)
     PowerFormulaStrand strandTmpl(200 + i, Eps, fpy, Q, K, R, fpu);
     InitStrainMaterial pretensioned(300 + i, strandTmpl, fse / Eps);
-    UniaxialFiber2d fib(fiberTag++, pretensioned, num(s["Aps"]), num(s["d"]));
+    UniaxialFiber2d fib(fiberTag++, pretensioned, num(s["Aps"]), h * 0.5 - num(s["d"]));
     section->addFiber(fib);
   }
 

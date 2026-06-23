@@ -34,10 +34,12 @@ analysis/solver/integrator/convergence machinery.
 
 ### Sign convention
 
-Fiber positions are passed as **depth-from-top**. With `FiberSection2d`'s
-internal convention (`UniaxialFiber2d` negates the position; fiber strain
-`= ε − y·κ`; `M = −Σσ·A·y`) this makes **positive curvature = sagging** and
-**M > 0 = sagging**, matching the TS design engine. A non-prestressed section
+Fiber positions are passed **measured upward from mid-height** (`yUp = h/2 −
+depth`, depth = distance from the top fiber). With `FiberSection2d`'s internal
+convention (`UniaxialFiber2d` location handling; fiber strain `= ε − y·κ`;
+`M = −Σσ·A·y`) this makes **positive curvature = sagging** and **M > 0 =
+sagging**, matching the TS design engine. (Depth-from-top positions give the
+negated sign — verified against the prestressed M(0) holding moment.) A non-prestressed section
 gives M(0) = 0; a pretensioned section carries a positive (sagging) holding
 moment at κ = 0 from the eccentric strand tension.
 
