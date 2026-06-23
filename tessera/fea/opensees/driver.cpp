@@ -79,6 +79,20 @@ OPS_Stream *opserrPtr = &sserr;
 // NDMaterial hook still needs a stub (no NDMaterial source is linked).
 void OPS_printNDMaterial(OPS_Stream &, int) {}
 
+// LAPACK is intentionally NOT linked (spec §2.2 — no Fortran/LAPACK). Matrix::Invert
+// is pulled into the link only through SectionForceDeformation's vtable
+// (getSectionFlexibility); it is never executed on the moment–curvature path
+// (which uses the section tangent directly). These stubs satisfy the linker and
+// report failure (INFO != 0) if ever actually reached.
+extern "C" int dgetrf_(int *, int *, double *, int *, int *, int *INFO) { *INFO = 1; return 0; }
+extern "C" int dgetri_(int *, double *, int *, int *, double *, int *, int *INFO) { *INFO = 1; return 0; }
+
+// Section-representation registry accessor — used only by the Tcl/interpreter
+// fiber path (FiberSection2d::getResponse for raw fiber data). The driver builds
+// fiber sections directly, so an empty registry (null) is correct here.
+class SectionRepres;
+SectionRepres *OPS_getSectionRepres(int) { return nullptr; }
+
 namespace {
 int len(const val &arr) {
   return (arr.isUndefined() || arr.isNull()) ? 0 : arr["length"].as<int>();

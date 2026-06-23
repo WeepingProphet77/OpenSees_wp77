@@ -110,6 +110,7 @@ SOURCES=(
   material/section/fiber/UniaxialFiber2d.cpp
   material/section/integration/SectionIntegration.cpp
   recorder/response/MaterialResponse.cpp
+  recorder/response/FiberResponse.cpp
   domain/component/Parameter.cpp
 )
 
