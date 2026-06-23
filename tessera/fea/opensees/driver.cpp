@@ -58,17 +58,40 @@
 #include <ProfileSPDLinSOE.h>
 #include <ProfileSPDLinDirectSolver.h>
 
+// Fiber-section moment–curvature (Phase 3 nonlinear capacity check).
+#include <UniaxialMaterial.h>
+#include <Concrete02.h>
+#include <ElasticPPMaterial.h>
+#include <InitStrainMaterial.h>
+#include <FiberSection2d.h>
+#include <UniaxialFiber2d.h>
+#include <Matrix.h>
+
 using emscripten::val;
 
 // Global stream singletons required by OPS_Globals.h (see EXAMPLES/Example1).
 StandardStream sserr;
 OPS_Stream *opserrPtr = &sserr;
 
-// Material-print hooks referenced only by Domain::Print (never invoked by this
-// driver); stubbed so we don't link the whole material subsystem.
-void OPS_printUniaxialMaterial(OPS_Stream &, int) {}
+// Material-print hook referenced only by Domain::Print (never invoked by this
+// driver). UniaxialMaterial.cpp / SectionForceDeformation.cpp now provide the
+// real OPS_printUniaxialMaterial / OPS_printSectionForceDeformation; only the
+// NDMaterial hook still needs a stub (no NDMaterial source is linked).
 void OPS_printNDMaterial(OPS_Stream &, int) {}
-void OPS_printSectionForceDeformation(OPS_Stream &, int) {}
+
+// LAPACK is intentionally NOT linked (spec §2.2 — no Fortran/LAPACK). Matrix::Invert
+// is pulled into the link only through SectionForceDeformation's vtable
+// (getSectionFlexibility); it is never executed on the moment–curvature path
+// (which uses the section tangent directly). These stubs satisfy the linker and
+// report failure (INFO != 0) if ever actually reached.
+extern "C" int dgetrf_(int *, int *, double *, int *, int *, int *INFO) { *INFO = 1; return 0; }
+extern "C" int dgetri_(int *, double *, int *, int *, double *, int *, int *INFO) { *INFO = 1; return 0; }
+
+// Section-representation registry accessor — used only by the Tcl/interpreter
+// fiber path (FiberSection2d::getResponse for raw fiber data). The driver builds
+// fiber sections directly, so an empty registry (null) is correct here.
+class SectionRepres;
+SectionRepres *OPS_getSectionRepres(int) { return nullptr; }
 
 namespace {
 int len(const val &arr) {
@@ -540,6 +563,209 @@ val solve3D(val model) {
   return result;
 }
 
+// ===========================================================================
+// Fiber-section moment–curvature
+// ===========================================================================
+
+// Devalapura–Tadros / PCI power-formula stress-strain, matching the TS design
+// engine (steelPresets). Monotonic nonlinear-elastic backbone:
+//   fs(e) = Es·e · [ Q + (1-Q) / (1 + (|Es·e|/(K·fpy))^R)^(1/R) ],  |fs| ≤ cap.
+// Path-independent (no hysteresis) — adequate for a monotonic curvature sweep.
+// Built directly (never via an OPS_ factory), so it needs no interpreter glue.
+class PowerFormulaStrand : public UniaxialMaterial {
+ public:
+  PowerFormulaStrand(int tag, double Es_, double fpy_, double Q_, double K_, double R_, double cap_)
+      : UniaxialMaterial(tag, 0), Es(Es_), fpy(fpy_), Q(Q_), K(K_), R(R_), cap(cap_),
+        eT(0.0), eC(0.0) {}
+  PowerFormulaStrand() : UniaxialMaterial(0, 0), Es(0), fpy(1), Q(0), K(1), R(1), cap(0), eT(0), eC(0) {}
+
+  int setTrialStrain(double strain, double = 0.0) override { eT = strain; return 0; }
+  int setTrial(double strain, double &stress, double &tangent, double = 0.0) override {
+    eT = strain;
+    stress = stressFor(eT);
+    tangent = tangentFor(eT);
+    return 0;
+  }
+  double getStrain(void) override { return eT; }
+  double getStress(void) override { return stressFor(eT); }
+  double getTangent(void) override { return tangentFor(eT); }
+  double getInitialTangent(void) override { return Es; }
+  int commitState(void) override { eC = eT; return 0; }
+  int revertToLastCommit(void) override { eT = eC; return 0; }
+  int revertToStart(void) override { eT = eC = 0.0; return 0; }
+  UniaxialMaterial *getCopy(void) override {
+    PowerFormulaStrand *c = new PowerFormulaStrand(this->getTag(), Es, fpy, Q, K, R, cap);
+    c->eT = eT; c->eC = eC;
+    return c;
+  }
+  int sendSelf(int, Channel &) override { return -1; }
+  int recvSelf(int, Channel &, FEM_ObjectBroker &) override { return -1; }
+  void Print(OPS_Stream &s, int) override { s << "PowerFormulaStrand " << this->getTag() << "\n"; }
+
+ private:
+  double Es, fpy, Q, K, R, cap;
+  double eT, eC;  // trial / committed strain
+
+  double stressFor(double e) const {
+    const double a = Es * e;
+    if (a == 0.0) return 0.0;
+    const double t = std::fabs(a) / (K * fpy);
+    const double denom = std::pow(1.0 + std::pow(t, R), 1.0 / R);
+    double fs = a * (Q + (1.0 - Q) / denom);
+    if (fs > cap) fs = cap;
+    else if (fs < -cap) fs = -cap;
+    return fs;
+  }
+  double tangentFor(double e) const {
+    if (std::fabs(stressFor(e)) >= cap - 1e-12) return 1e-6 * Es;  // capped → ~flat
+    const double a = Es * e;
+    const double Kfpy = K * fpy;
+    const double t = std::fabs(a) / Kfpy;
+    const double base = 1.0 + std::pow(t, R);
+    const double denom = std::pow(base, 1.0 / R);
+    double dfs = Es * (Q + (1.0 - Q) / denom);
+    if (t > 0.0) {
+      const double dbase = R * std::pow(t, R - 1.0) * (Es / Kfpy) * (a >= 0 ? 1.0 : -1.0);
+      const double ddenom = (1.0 / R) * std::pow(base, 1.0 / R - 1.0) * dbase;
+      dfs += a * (1.0 - Q) * (-1.0 / (denom * denom)) * ddenom;
+    }
+    return dfs;
+  }
+};
+
+// Build a 2D fiber section from a flat spec and trace its moment–curvature curve
+// by sweeping curvature and, at each step, Newton-solving the section axial
+// strain so the net axial force equals the target (prestress is carried as a
+// strand pre-strain). Uses the REAL OpenSees FiberSection2d + materials — only
+// the section-level equilibrium loop is hand-rolled (no Domain/analysis stack).
+//
+// Fiber positions are passed as depth-from-top; with the FiberSection2d
+// convention this makes positive curvature = sagging and M > 0 = sagging,
+// matching the TS engine.
+val momentCurvature(val spec) {
+  val result = val::object();
+  val pts = val::array();
+
+  // ---- section geometry (rectangular b×h discretized into layers) ----------
+  val sec = spec["section"];
+  const double b = num(sec["b"]);
+  const double h = num(sec["h"]);
+  const int nLayers = static_cast<int>(num(sec["concreteLayers"], 40));
+
+  // ---- concrete (Concrete02) ------------------------------------------------
+  val con = spec["concrete"];
+  const double fc = std::fabs(num(con["fc"]));  // +ksi compressive strength
+  const double Ec = num(con["Ec"], 57000.0 * std::sqrt(fc * 1000.0) / 1000.0);
+  const double epsc0 = num(con["epsc0"], -2.0 * fc / Ec);  // strain at fc (neg)
+  const double fcu = num(con["fcu"], -0.2 * fc);           // residual (neg)
+  const double epscu = num(con["epscu"], -0.003);          // ultimate (neg)
+  const double ratio = num(con["ratio"], 0.1);             // unload/reload slope ratio
+  const double ft = num(con["ft"], 7.5 * std::sqrt(fc * 1000.0) / 1000.0);  // +ksi
+  const double Ets = num(con["Ets"], ft / 0.002);
+  Concrete02 conTmpl(1, -fc, epsc0, fcu, epscu, ratio, ft, Ets);
+
+  const int nSteel = len(spec["steel"]);
+  const int nStrand = len(spec["strands"]);
+  FiberSection2d *section = new FiberSection2d(1, nLayers + nSteel + nStrand, true);
+
+  // Fiber positions are passed measured UPWARD from mid-height, yUp = h/2 − depth
+  // (depth = distance from the top fiber). With FiberSection2d's internal
+  // convention this makes positive curvature = sagging and M > 0 = sagging,
+  // matching the TS design engine.
+  int fiberTag = 1;
+  const double dy = h / nLayers;
+  for (int i = 0; i < nLayers; ++i) {
+    const double depth = (i + 0.5) * dy;  // from the top fiber
+    UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, h * 0.5 - depth);
+    section->addFiber(fib);
+  }
+
+  // ---- mild-steel layers (ElasticPP) ----------------------------------------
+  val steels = spec["steel"];
+  for (int i = 0; i < nSteel; ++i) {
+    val s = steels[i];
+    const double Es = num(s["Es"], 29000.0);
+    const double fy = num(s["fy"]);
+    ElasticPPMaterial steelTmpl(100 + i, Es, fy / Es);
+    UniaxialFiber2d fib(fiberTag++, steelTmpl, num(s["As"]), h * 0.5 - num(s["d"]));
+    section->addFiber(fib);
+  }
+
+  // ---- prestressing strand layers (power formula + InitStrain prestrain) ----
+  val strands = spec["strands"];
+  for (int i = 0; i < nStrand; ++i) {
+    val s = strands[i];
+    const double Eps = num(s["Eps"], 28500.0);
+    const double fpy = num(s["fpy"], 243.0);
+    const double fpu = num(s["fpu"], 270.0);
+    const double Q = num(s["Q"], 0.0);
+    const double K = num(s["K"], 1.04);
+    const double R = num(s["R"], 7.36);
+    const double fse = num(s["fse"], 0.0);  // effective prestress (ksi)
+    PowerFormulaStrand strandTmpl(200 + i, Eps, fpy, Q, K, R, fpu);
+    InitStrainMaterial pretensioned(300 + i, strandTmpl, fse / Eps);
+    UniaxialFiber2d fib(fiberTag++, pretensioned, num(s["Aps"]), h * 0.5 - num(s["d"]));
+    section->addFiber(fib);
+  }
+
+  // ---- curvature sweep with a section-level axial-equilibrium Newton --------
+  const double targetN = num(spec["axial"], 0.0);
+  const int steps = static_cast<int>(num(spec["steps"], 80));
+  const double maxKappa = num(spec["maxKappa"], 3.0e-3);
+  const double dKappa = steps > 0 ? maxKappa / steps : 0.0;
+  const double tolN = 1e-6 * (b * h * fc + 1.0);
+
+  section->revertToStart();
+  Vector e(2);
+  double eps = 0.0;
+  double peakM = 0.0;
+  bool converged = true;
+  std::string message = "ok";
+
+  for (int step = 0; step <= steps; ++step) {
+    const double kappa = step * dKappa;
+    bool ok = false;
+    for (int it = 0; it < 50; ++it) {
+      e(0) = eps;
+      e(1) = kappa;
+      section->setTrialSectionDeformation(e);
+      const double resN = section->getStressResultant()(0) - targetN;
+      if (!std::isfinite(resN)) break;
+      if (std::fabs(resN) < tolN) { ok = true; break; }
+      const double dNde = section->getSectionTangent()(0, 0);
+      if (!std::isfinite(dNde) || std::fabs(dNde) < 1e-12) break;
+      eps -= resN / dNde;
+    }
+    if (!ok) {
+      converged = (step > 0);  // failure at step>0 = capacity reached (acceptable)
+      message = step == 0 ? "axial equilibrium failed at zero curvature"
+                          : "section reached ultimate before maxKappa";
+      break;
+    }
+    e(0) = eps;
+    e(1) = kappa;
+    section->setTrialSectionDeformation(e);
+    const double M = section->getStressResultant()(1);
+    if (!std::isfinite(M)) { converged = (step > 0); message = "non-finite moment"; break; }
+    section->commitState();
+    if (std::fabs(M) > std::fabs(peakM)) peakM = M;
+    val p = val::object();
+    p.set("kappa", kappa);
+    p.set("M", M);
+    p.set("eps", eps);
+    pts.call<void>("push", p);
+  }
+
+  result.set("points", pts);
+  result.set("peakMoment", peakM);
+  result.set("converged", converged);
+  result.set("message", message);
+  result.set("solver", std::string("OpenSees FiberSection2d moment–curvature (pure C++)"));
+
+  delete section;
+  return result;
+}
+
 // Dispatcher: 2D (3 DOF/node) or 3D (6 DOF/node) per model.dimension.
 val solve(val model) {
   val dim = model["dimension"];
@@ -549,4 +775,5 @@ val solve(val model) {
 
 EMSCRIPTEN_BINDINGS(tessera_fea_opensees) {
   emscripten::function("solve", &solve);
+  emscripten::function("momentCurvature", &momentCurvature);
 }

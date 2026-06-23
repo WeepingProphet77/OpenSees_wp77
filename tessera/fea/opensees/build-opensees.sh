@@ -94,6 +94,24 @@ SOURCES=(
   handler/OPS_Stream.cpp handler/StandardStream.cpp handler/DummyStream.cpp
   # response
   recorder/response/Response.cpp recorder/response/ElementResponse.cpp
+  # ---- fiber-section moment–curvature (Phase 3 nonlinear capacity) ----------
+  # Material/section base classes, the fiber section + 2D fiber, and the
+  # concrete/steel materials the driver builds directly. The OPS_* interpreter
+  # factories these files carry are unreachable from solve()/momentCurvature()
+  # and get GC-stripped by wasm-ld (same as the elastic element files above).
+  material/Material.cpp
+  material/uniaxial/UniaxialMaterial.cpp
+  material/uniaxial/Concrete02.cpp
+  material/uniaxial/ElasticPPMaterial.cpp
+  material/uniaxial/InitStrainMaterial.cpp
+  material/section/SectionForceDeformation.cpp
+  material/section/FiberSection2d.cpp
+  material/section/fiber/Fiber.cpp
+  material/section/fiber/UniaxialFiber2d.cpp
+  material/section/integration/SectionIntegration.cpp
+  recorder/response/MaterialResponse.cpp
+  recorder/response/FiberResponse.cpp
+  domain/component/Parameter.cpp
 )
 
 echo "Compiling ${#SOURCES[@]} OpenSees sources + driver (incremental)…"
