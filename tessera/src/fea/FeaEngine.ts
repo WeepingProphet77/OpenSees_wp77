@@ -47,10 +47,6 @@ export function defaultModuleUrl(): string {
   return `${base}fea/feaEngine.mjs`;
 }
 
-function baseFromModuleUrl(url: string): string {
-  return url.slice(0, url.lastIndexOf('/') + 1);
-}
-
 /**
  * Engine that runs the WASM module on the current thread (no Worker). Accepts a
  * module factory so callers control how/where the Emscripten glue is loaded
@@ -89,7 +85,7 @@ export function createDirectFeaEngine(loadFactory: () => Promise<FeaModuleFactor
 // ---- Worker protocol --------------------------------------------------------
 
 export type FeaWorkerRequest =
-  | { type: 'init'; baseUrl: string }
+  | { type: 'init'; moduleUrl: string }
   | { type: 'solve'; id: number; model: unknown };
 
 export type FeaWorkerResponse =
@@ -163,7 +159,7 @@ export function createWorkerFeaEngine(options: WorkerFeaEngineOptions = {}): Fea
     pending.clear();
   };
 
-  worker.postMessage({ type: 'init', baseUrl: baseFromModuleUrl(moduleUrl) } satisfies FeaWorkerRequest);
+  worker.postMessage({ type: 'init', moduleUrl } satisfies FeaWorkerRequest);
 
   return {
     ready: () => readyPromise,

@@ -9,16 +9,16 @@
  * Pages base path (`/OpenSees_wp77/`).
  */
 import type { FeaModuleFactory, FeaWasmModule, FeaWorkerRequest, FeaWorkerResponse } from './FeaEngine';
+import { resolveFeaModuleUrls } from './feaModuleUrl';
 
 let modulePromise: Promise<FeaWasmModule> | null = null;
 
-function loadModule(baseUrl: string): Promise<FeaWasmModule> {
+function loadModule(moduleUrl: string): Promise<FeaWasmModule> {
   if (!modulePromise) {
-    const glueUrl = `${baseUrl}fea/feaEngine.mjs`;
-    modulePromise = import(/* @vite-ignore */ glueUrl)
-      .then((mod: { default: FeaModuleFactory }) =>
-        mod.default({ locateFile: (path) => `${baseUrl}fea/${path}` }),
-      );
+    const { glueUrl, locateFile } = resolveFeaModuleUrls(moduleUrl);
+    modulePromise = import(/* @vite-ignore */ glueUrl).then((mod: { default: FeaModuleFactory }) =>
+      mod.default({ locateFile }),
+    );
   }
   return modulePromise;
 }
@@ -29,7 +29,7 @@ self.onmessage = async (ev: MessageEvent<FeaWorkerRequest>) => {
   const msg = ev.data;
   if (msg.type === 'init') {
     try {
-      await loadModule(msg.baseUrl);
+      await loadModule(msg.moduleUrl);
       post({ type: 'ready' });
     } catch (e) {
       post({ type: 'initError', error: e instanceof Error ? e.message : String(e) });
