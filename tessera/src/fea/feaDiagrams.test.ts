@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeFeaModel, type FeaResult, type FeaModelInput } from './feaModel';
-import { computeMemberDiagrams, diagramExtreme } from './feaDiagrams';
+import {
+  computeMemberDiagrams,
+  diagramExtreme,
+  interpolateDiagram,
+  summarizeReactions,
+} from './feaDiagrams';
 
 const near = (a: number, b: number, tol = 1e-6) => Math.abs(a - b) <= tol + 1e-9 * Math.abs(b);
 const valAt = (pts: { x: number; value: number }[], x: number) => {
@@ -91,5 +96,52 @@ describe('computeMemberDiagrams — internal-force reconstruction', () => {
     expect(near(valAt(d.shear, 50), 0)).toBe(true); // at a
     // rectangular load over [50,100]: total = w·50 at x=100
     expect(near(valAt(d.shear, 100), w * 50)).toBe(true);
+  });
+});
+
+describe('interpolateDiagram', () => {
+  const pts = [
+    { x: 0, value: 0 },
+    { x: 50, value: 25 },
+    { x: 100, value: 0 },
+  ];
+  it('returns exact sample values at stations', () => {
+    expect(interpolateDiagram(pts, 50)).toBe(25);
+    expect(interpolateDiagram(pts, 0)).toBe(0);
+  });
+  it('linearly interpolates between samples', () => {
+    expect(interpolateDiagram(pts, 25)).toBeCloseTo(12.5, 9);
+    expect(interpolateDiagram(pts, 75)).toBeCloseTo(12.5, 9);
+  });
+  it('clamps outside the member ends', () => {
+    expect(interpolateDiagram(pts, -10)).toBe(0);
+    expect(interpolateDiagram(pts, 999)).toBe(0);
+    expect(interpolateDiagram([], 5)).toBe(0);
+  });
+});
+
+describe('summarizeReactions', () => {
+  it('joins reactions to node x and orders them left→right', () => {
+    const model = normalizeFeaModel({
+      ...base,
+      nodes: [
+        { id: 'j', x: 120, y: 0 },
+        { id: 'i', x: 0, y: 0 },
+      ],
+      elements: [{ id: 'e', nodeI: 'i', nodeJ: 'j', materialId: 'm', sectionId: 's' }],
+      supports: [{ nodeId: 'i', dx: true, dy: true }, { nodeId: 'j', dy: true }],
+    });
+    const result: FeaResult = {
+      converged: true, solver: 't', message: 'ok', residual: 0,
+      nodalDisplacements: [], elementForces: [],
+      reactions: [
+        { nodeId: 'j', fx: 0, fy: 3, mz: 0 },
+        { nodeId: 'i', fx: 0, fy: 5, mz: 0 },
+      ],
+    };
+    const r = summarizeReactions(model, result);
+    expect(r.map((x) => x.nodeId)).toEqual(['i', 'j']); // sorted by x
+    expect(r[0]).toMatchObject({ x: 0, fy: 5 });
+    expect(r[1]).toMatchObject({ x: 120, fy: 3 });
   });
 });

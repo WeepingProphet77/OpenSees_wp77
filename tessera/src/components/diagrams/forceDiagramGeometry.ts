@@ -19,6 +19,8 @@ export interface DiagramGeometry {
   peak: { x: number; y: number; value: number } | null;
   /** Maps a member station x → SVG x (exposed for tick/label placement). */
   scaleX: (x: number) => number;
+  /** Maps a value → SVG y about the centered baseline (for cursor placement). */
+  scaleY: (v: number) => number;
 }
 
 export function buildDiagramGeometry(
@@ -47,5 +49,5 @@ export function buildDiagramGeometry(
   for (const p of points) if (!peakPt || Math.abs(p.value) > Math.abs(peakPt.value)) peakPt = p;
   const peak = peakPt ? { x: scaleX(peakPt.x), y: scaleY(peakPt.value), value: peakPt.value } : null;
 
-  return { width, height, baselineY, line, area, peak, scaleX };
+  return { width, height, baselineY, line, area, peak, scaleX, scaleY };
 }

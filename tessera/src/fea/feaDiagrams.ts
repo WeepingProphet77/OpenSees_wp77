@@ -146,3 +146,42 @@ export function diagramExtreme(points: readonly DiagramPoint[]): { x: number; va
   for (const p of points) if (Math.abs(p.value) > Math.abs(best.value)) best = p;
   return best;
 }
+
+/**
+ * Linear-interpolate a diagram series at an arbitrary station x (clamped to the
+ * member ends). Powers the interactive cursor readout. Assumes `points` is
+ * sorted ascending by x (as produced by computeMemberDiagrams).
+ */
+export function interpolateDiagram(points: readonly DiagramPoint[], x: number): number {
+  if (points.length === 0) return 0;
+  if (x <= points[0].x) return points[0].value;
+  const last = points[points.length - 1];
+  if (x >= last.x) return last.value;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (x <= b.x) {
+      const t = b.x === a.x ? 0 : (x - a.x) / (b.x - a.x);
+      return a.value + t * (b.value - a.value);
+    }
+  }
+  return last.value;
+}
+
+/** A support reaction joined with its node's position, for left→right display. */
+export interface SupportReaction {
+  nodeId: string;
+  /** Node x-coordinate (model length unit), for ordering/labeling. */
+  x: number;
+  fx: number;
+  fy: number;
+  mz: number;
+}
+
+/** Reactions joined with node positions and ordered left→right along x. */
+export function summarizeReactions(model: FeaModel, result: FeaResult): SupportReaction[] {
+  const nodeX = new Map(model.nodes.map((n) => [n.id, n.x]));
+  return result.reactions
+    .map((r) => ({ nodeId: r.nodeId, x: nodeX.get(r.nodeId) ?? 0, fx: r.fx, fy: r.fy, mz: r.mz }))
+    .sort((a, b) => a.x - b.x);
+}
