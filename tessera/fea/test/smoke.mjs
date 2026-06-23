@@ -97,6 +97,11 @@ const check = (name, a, b, rel, abs) => {
   check('Moment equilibrium (reactions balance applied)', Mreact, H * Hload, 1e-4, 1e-4);
 }
 
+// Fiber moment–curvature — production OpenSees engine only. The Eigen oracle is
+// a linear-elastic solver and has no momentCurvature binding, so skip there.
+if (typeof mod.momentCurvature !== 'function') {
+  console.log('\n== M–φ ==  skipped (elastic-only engine — no momentCurvature)');
+} else {
 // Case 4 — RC rectangular section: fiber moment–curvature vs closed-form Mn.
 {
   const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;
@@ -140,6 +145,7 @@ const check = (name, a, b, rel, abs) => {
   check('prestress moment present at zero curvature', m0 > 500 ? 1 : 0, 1);
   check('ultimate capacity develops above the prestress moment', peak > 3000 && peak > m0 ? 1 : 0, 1);
 }
+}  // end moment–curvature (production engine) guard
 
 console.log(`\n${fail === 0 ? 'ALL PASS' : 'FAILURES'} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
