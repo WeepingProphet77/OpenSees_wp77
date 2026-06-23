@@ -97,5 +97,49 @@ const check = (name, a, b, rel, abs) => {
   check('Moment equilibrium (reactions balance applied)', Mreact, H * Hload, 1e-4, 1e-4);
 }
 
+// Case 4 — RC rectangular section: fiber moment–curvature vs closed-form Mn.
+{
+  const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;
+  const r = mod.momentCurvature({
+    section: { b, h, concreteLayers: 50 },
+    concrete: { fc },
+    steel: [{ As, d, fy, Es: 29000 }],
+    strands: [],
+    steps: 120,
+    maxKappa: 3.0e-3,
+  });
+  const a = (As * fy) / (0.85 * fc * b);
+  const Mn = As * fy * (d - a / 2); // Whitney stress-block nominal moment
+  const ptsN = r.points.length;
+  const M = (i) => r.points[i].M;
+  const K = (i) => r.points[i].kappa;
+  console.log(`\n== M–φ (RC) ==  converged=${r.converged} points=${ptsN} peakM=${(+r.peakMoment).toPrecision(5)} msg="${r.message}"`);
+  check('peak moment ≈ Whitney Mn (±12%)', r.peakMoment, Mn, 0.12);
+  check('curve has points', ptsN > 20 ? 1 : 0, 1);
+  check('M(0) ≈ 0 for non-prestressed', M(0), 0, 1, 1e-3);
+  check('moment rises with curvature (monotone onset)', M(3) > M(1) && K(3) > K(1) ? 1 : 0, 1);
+}
+
+// Case 5 — prestressed section: exercises PowerFormulaStrand + InitStrain.
+{
+  const b = 12, h = 24;
+  const r = mod.momentCurvature({
+    section: { b, h, concreteLayers: 50 },
+    concrete: { fc: 6 },
+    steel: [],
+    strands: [{ Aps: 0.918, d: 20, Eps: 28500, fpy: 243, fpu: 270, Q: 0.031, K: 1.04, R: 7.36, fse: 175 }],
+    steps: 120,
+    maxKappa: 3.0e-3,
+  });
+  const peak = r.peakMoment;
+  const m0 = r.points.length ? r.points[0].M : 0;
+  console.log(`\n== M–φ (prestressed) ==  converged=${r.converged} points=${r.points.length} M(0)=${(+m0).toPrecision(4)} peakM=${(+peak).toPrecision(5)} msg="${r.message}"`);
+  check('prestressed solve converged', r.converged ? 1 : 0, 1);
+  // At κ=0 the eccentric strand tension is held by a positive (sagging) section
+  // moment; capacity then climbs well above it as curvature increases.
+  check('prestress moment present at zero curvature', m0 > 500 ? 1 : 0, 1);
+  check('ultimate capacity develops above the prestress moment', peak > 3000 && peak > m0 ? 1 : 0, 1);
+}
+
 console.log(`\n${fail === 0 ? 'ALL PASS' : 'FAILURES'} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
