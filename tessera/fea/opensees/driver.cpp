@@ -73,11 +73,11 @@ using emscripten::val;
 StandardStream sserr;
 OPS_Stream *opserrPtr = &sserr;
 
-// Material-print hooks referenced only by Domain::Print (never invoked by this
-// driver); stubbed so we don't link the whole material subsystem.
-void OPS_printUniaxialMaterial(OPS_Stream &, int) {}
+// Material-print hook referenced only by Domain::Print (never invoked by this
+// driver). UniaxialMaterial.cpp / SectionForceDeformation.cpp now provide the
+// real OPS_printUniaxialMaterial / OPS_printSectionForceDeformation; only the
+// NDMaterial hook still needs a stub (no NDMaterial source is linked).
 void OPS_printNDMaterial(OPS_Stream &, int) {}
-void OPS_printSectionForceDeformation(OPS_Stream &, int) {}
 
 namespace {
 int len(const val &arr) {
