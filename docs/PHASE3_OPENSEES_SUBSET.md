@@ -121,11 +121,12 @@ hand-built models don't silently produce NaN.
   refinement is to expose the RISA-3D β roll angle (§4.1) as a friendlier
   alternative to `vecxz`.
 - **Results visualization (C1):** the internal-force **reconstruction module**
-  (`src/fea/feaDiagrams.ts`) is done — it rebuilds axial/shear/moment along each
-  member from the element end forces + member loads (verified against closed-form
-  in `feaDiagrams.test.ts`). Next: the SVG rendering components (loading, shear,
-  moment, axial, deflected shape), the 3D out-of-plane plane (Vz/My) and torsion,
-  and wiring into a frame view.
+  (`src/fea/feaDiagrams.ts`) and **SVG diagram components** (`ForceDiagram`,
+  `forceDiagramGeometry`) are done, and shear/moment diagrams are **wired into the
+  member workspace**: the designed member is solved as a simply-supported span
+  (via `useMemberDiagrams` → the worker engine) and its V/M diagrams render under
+  the results. Next: the 3D out-of-plane plane (Vz/My) + torsion, a deflected-shape
+  diagram, and factored/per-combination load cases.
 - **B4 + section linkage:** tie FEA members to real cross-sections (reusing the
   existing `compositeSection` / `serviceStresses` code) for stress diagrams, then
   fiber-section moment–curvature (`forceBeamColumn`) for higher-fidelity capacity

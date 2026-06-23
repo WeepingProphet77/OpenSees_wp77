@@ -25,6 +25,7 @@ import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
 import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
 import { InteractionDiagram } from '@/components/diagrams/InteractionDiagram';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
+import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
 
 const selectClass =
   'flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -438,6 +439,14 @@ export function MemberWorkspace() {
         {analysis.ok ? (
           <>
             <ResultsPanel analysis={analysis.value} />
+
+            <MemberForceDiagrams
+              lengthFt={design.L}
+              E={analysis.value.properties.Ec}
+              A={analysis.value.properties.A}
+              I={analysis.value.properties.Ig}
+              w={analysis.value.properties.wSelf + (design.superDead + design.live) / 12}
+            />
 
             {analysis.value.composite && (
               <Card>
