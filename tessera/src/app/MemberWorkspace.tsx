@@ -446,6 +446,29 @@ export function MemberWorkspace() {
               A={analysis.value.properties.A}
               I={analysis.value.properties.Ig}
               w={analysis.value.properties.wSelf + (design.superDead + design.live) / 12}
+              stress={
+                analysis.value.stresses
+                  ? {
+                      props: {
+                        A: analysis.value.properties.A,
+                        Ig: analysis.value.properties.Ig,
+                        yt: analysis.value.properties.yt,
+                        yb: analysis.value.properties.yb,
+                      },
+                      Pi: analysis.value.prestress.Pi,
+                      Pe: analysis.value.prestress.Pe,
+                      e: analysis.value.prestress.e,
+                      transferRatio:
+                        analysis.value.demands.Mtotal !== 0
+                          ? analysis.value.demands.Mg / analysis.value.demands.Mtotal
+                          : 0,
+                      transferCompression: analysis.value.stresses.allowables.transferCompression,
+                      transferTension: analysis.value.stresses.allowables.transferTension,
+                      serviceCompression: analysis.value.stresses.allowables.serviceCompressionTotal,
+                      serviceTension: analysis.value.stresses.allowables.serviceTension,
+                    }
+                  : undefined
+              }
             />
 
             {analysis.value.composite && (

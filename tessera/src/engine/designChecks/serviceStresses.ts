@@ -86,7 +86,12 @@ function sqrtFcKsi(fc: number): number {
   return Math.sqrt(fc * 1000) / 1000;
 }
 
-function fiberStresses(
+/**
+ * Top & bottom fiber stress (ksi, compression +) for a prestress force P at
+ * eccentricity e and an applied sagging moment M. See the file header for the
+ * sign convention.
+ */
+export function fiberStress(
   props: StressSectionProps,
   P: number,
   e: number,
@@ -97,6 +102,41 @@ function fiberStresses(
     top: P / A - (P * e * yt) / Ig + (M * yt) / Ig,
     bottom: P / A + (P * e * yb) / Ig - (M * yb) / Ig,
   };
+}
+
+/** Fiber stresses (ksi, compression +) at one station along the span. */
+export interface StressStation {
+  x: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Top & bottom fiber stresses along the span for two §24.5 stages — transfer
+ * (Pi, self-weight moment) and full service (Pe, total moment) — from a solved
+ * total-service moment distribution. The tendon is straight (e constant), so the
+ * prestress term P/A ± P·e·y/Ig is constant and each curve mirrors the moment
+ * parabola. `transferRatio` = Mg/Mtotal scales the total moment down to the
+ * self-weight-only level acting at transfer.
+ */
+export function memberStressDistribution(args: {
+  props: StressSectionProps;
+  Pi: number;
+  Pe: number;
+  e: number;
+  moment: readonly { x: number; value: number }[];
+  transferRatio: number;
+}): { transfer: StressStation[]; service: StressStation[] } {
+  const { props, Pi, Pe, e, moment, transferRatio } = args;
+  const transfer = moment.map(({ x, value }) => {
+    const f = fiberStress(props, Pi, e, value * transferRatio);
+    return { x, top: f.top, bottom: f.bottom };
+  });
+  const service = moment.map(({ x, value }) => {
+    const f = fiberStress(props, Pe, e, value);
+    return { x, top: f.top, bottom: f.bottom };
+  });
+  return { transfer, service };
 }
 
 export function serviceStressChecks(input: ServiceStressInput): ServiceStressResult {
@@ -115,9 +155,9 @@ export function serviceStressChecks(input: ServiceStressInput): ServiceStressRes
     Mtotal,
   } = input;
 
-  const transfer = fiberStresses(props, Pi, e, Mg);
-  const serviceSustained = fiberStresses(props, Pe, e, Msustained);
-  const serviceTotal = fiberStresses(props, Pe, e, Mtotal);
+  const transfer = fiberStress(props, Pi, e, Mg);
+  const serviceSustained = fiberStress(props, Pe, e, Msustained);
+  const serviceTotal = fiberStress(props, Pe, e, Mtotal);
 
   // Allowable magnitudes (ksi).
   const transferCompression = (endRegion ? 0.7 : 0.6) * fci; // §24.5.3.1
