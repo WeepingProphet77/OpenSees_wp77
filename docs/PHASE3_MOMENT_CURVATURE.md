@@ -106,9 +106,15 @@ linker reports them.
 3. ~~M–φ chart in the member workspace (equivalent-yield / nominal / ultimate,
    ductility μ = φu/φy), with the closed-form Mₙ and cracking moment overlaid.~~
    **Done** — `useMomentCurvature` hook, `MomentCurvatureChart`, and
-   `momentCurvatureMetrics` (peak Mn, secant-equivalent φy, φu, μ). The chart shows
-   for flexural members; the Eigen oracle path is untouched. *Note:* yield is the
-   reduced-stiffness equivalent (curve-only), not exact first-strand-yield — that
-   would need per-fiber strain output from the engine (a small future add).
-4. (Optional) feed ductility / nonlinear capacity into the design checks; exact
-   first-yield / crushing markers via per-point strain output.
+   `momentCurvatureMetrics` (peak Mn, φy, φu, μ). The chart shows for flexural
+   members; the Eigen oracle path is untouched.
+4. ~~Exact first-yield / crushing landmarks.~~ **Done** — the driver tracks each
+   fiber's strain (`ε = eps − yUp·κ`, the section's own convention) and emits the
+   first interpolated crossing of concrete cracking (`ft/Ec`), reinforcement yield
+   (mild `fy/Es`; strand 0.010, the ASTM A416 1%-extension definition), and concrete
+   crushing (`εcu`) as a `landmarks` block. `momentCurvatureMetrics` uses the exact
+   `firstYield`/`crushing` curvatures for φy, φu and μ when present, keeping the
+   secant-equivalent as the fallback; the chart marks them (cracking/first-yield/
+   crushing). Validated in `smoke.mjs` (Case 7) and `feaSolve.test.ts`.
+5. (Optional) feed ductility / nonlinear capacity into the design checks
+   (e.g. a curvature-ductility flag on the member results).

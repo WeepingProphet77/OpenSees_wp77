@@ -551,6 +551,30 @@ describe.skipIf(!feaEngineHasMomentCurvature)('WASM fiber moment–curvature (Op
     engine.dispose();
   });
 
+  it('reports exact cracking < first-yield < crushing landmarks for the RC section', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.momentCurvature({
+      section: { b: 12, h: 24, concreteLayers: 60 },
+      concrete: { fc: 5 },
+      steel: [{ As: 3.0, d: 21.5, fy: 60 }],
+      steps: 200,
+      maxKappa: 4e-3,
+    });
+    const { cracking, firstYield, crushing } = r.landmarks;
+    expect(firstYield).not.toBeNull();
+    expect(crushing).not.toBeNull();
+    expect(cracking).not.toBeNull();
+    // Ordering: concrete cracks, then tension steel yields, then concrete crushes.
+    expect(cracking!.kappa).toBeLessThan(firstYield!.kappa);
+    expect(firstYield!.kappa).toBeLessThan(crushing!.kappa);
+    // First yield ≈ the bar reaching εy = fy/Es; crushing ≈ εcu.
+    expect(firstYield!.strain).toBeGreaterThanOrEqual(60 / 29000 - 1e-6);
+    expect(firstYield!.strain).toBeLessThan(60 / 29000 + 1e-3);
+    expect(crushing!.strain).toBeCloseTo(-0.003, 6);
+    expect(crushing!.kappa / firstYield!.kappa).toBeGreaterThan(1); // ductility μ > 1
+    engine.dispose();
+  });
+
   it('general-geometry fibers reproduce the rectangular b×h form', async () => {
     const engine = makeEngine('feaEngine');
     const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;

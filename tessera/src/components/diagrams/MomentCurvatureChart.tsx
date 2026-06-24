@@ -28,7 +28,7 @@ export function MomentCurvatureChart({ result, closedFormMn, crackingMoment }: M
     );
   }
 
-  const metrics = momentCurvatureMetrics(pts);
+  const metrics = momentCurvatureMetrics(pts, result.landmarks);
   const width = 560;
   const height = 380;
   const margin = { top: 20, right: 16, bottom: 48, left: 64 };
@@ -55,8 +55,12 @@ export function MomentCurvatureChart({ result, closedFormMn, crackingMoment }: M
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.kappa).toFixed(1)} ${yScale(ft(p.M)).toFixed(1)}`)
     .join(' ');
 
-  const peak = metrics ? { x: xScale(metrics.phiAtPeak), y: yScale(ft(metrics.mn)) } : null;
-  const ult = { x: xScale(pts[pts.length - 1].kappa), y: yScale(ft(pts[pts.length - 1].M)) };
+  const mk = (kappa: number, moment: number) => ({ x: xScale(kappa), y: yScale(ft(moment)) });
+  const lastPt = pts[pts.length - 1];
+  const peak = metrics ? mk(metrics.phiAtPeak, metrics.mn) : null;
+  const crackPt = metrics?.cracking ? mk(metrics.cracking.kappa, metrics.cracking.M) : null;
+  const yieldPt = metrics?.firstYield ? mk(metrics.firstYield.kappa, metrics.firstYield.M) : null;
+  const ultPt = metrics?.crushing ? mk(metrics.crushing.kappa, metrics.crushing.M) : mk(lastPt.kappa, lastPt.M);
   const fmt = (v: number, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
   const diffPct =
     closedFormMn && metrics && closedFormMn !== 0
@@ -109,12 +113,12 @@ export function MomentCurvatureChart({ result, closedFormMn, crackingMoment }: M
           </g>
         )}
 
-        {/* Equivalent yield curvature guide */}
-        {metrics && metrics.phiY > 0 && metrics.phiY <= maxKappa && (
+        {/* Yield-curvature guide — only the equivalent secant when no exact landmark */}
+        {metrics && !metrics.exactYield && metrics.phiY > 0 && metrics.phiY <= maxKappa && (
           <g>
             <line x1={xScale(metrics.phiY)} y1={margin.top} x2={xScale(metrics.phiY)} y2={margin.top + plotH} stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="2 3" />
             <text x={xScale(metrics.phiY) + 3} y={margin.top + 10} fontSize={9} fill="var(--muted-foreground)">
-              φ_y
+              φ_y (equiv.)
             </text>
           </g>
         )}
@@ -122,14 +126,24 @@ export function MomentCurvatureChart({ result, closedFormMn, crackingMoment }: M
         {/* M–φ curve */}
         <path d={curve} fill="none" stroke="#3b82f6" strokeWidth={2} />
 
-        {/* Peak and ultimate markers */}
+        {/* Landmark markers: cracking (amber), first yield (violet), peak (blue), crushing/ultimate (red) */}
+        {crackPt && (
+          <circle cx={crackPt.x} cy={crackPt.y} r={3.5} fill="#f59e0b" stroke="var(--card)" strokeWidth={1.3}>
+            <title>{`Cracking @ φ = ${fmt(metrics!.cracking!.kappa * PHI_SCALE, 3)}×10⁻³/in, M = ${fmt(ft(metrics!.cracking!.M))} kip-ft`}</title>
+          </circle>
+        )}
+        {yieldPt && (
+          <circle cx={yieldPt.x} cy={yieldPt.y} r={4} fill="#8b5cf6" stroke="var(--card)" strokeWidth={1.5}>
+            <title>{`First yield @ φy = ${fmt(metrics!.firstYield!.kappa * PHI_SCALE, 3)}×10⁻³/in, M = ${fmt(ft(metrics!.firstYield!.M))} kip-ft`}</title>
+          </circle>
+        )}
         {peak && (
           <circle cx={peak.x} cy={peak.y} r={4} fill="#3b82f6" stroke="var(--card)" strokeWidth={1.5}>
             <title>{`Peak Mn = ${fmt(ft(metrics!.mn))} kip-ft @ φ = ${fmt(metrics!.phiAtPeak * PHI_SCALE, 3)}×10⁻³/in`}</title>
           </circle>
         )}
-        <circle cx={ult.x} cy={ult.y} r={4} fill="#ef4444" stroke="var(--card)" strokeWidth={1.5}>
-          <title>{`Ultimate φu = ${fmt(pts[pts.length - 1].kappa * PHI_SCALE, 3)}×10⁻³/in`}</title>
+        <circle cx={ultPt.x} cy={ultPt.y} r={4} fill="#ef4444" stroke="var(--card)" strokeWidth={1.5}>
+          <title>{`${metrics?.exactUltimate ? 'Crushing' : 'Ultimate'} φu = ${fmt((metrics?.crushing?.kappa ?? lastPt.kappa) * PHI_SCALE, 3)}×10⁻³/in`}</title>
         </circle>
       </svg>
 
@@ -148,7 +162,9 @@ export function MomentCurvatureChart({ result, closedFormMn, crackingMoment }: M
             </div>
           )}
           <div>
-            <dt className="text-muted-foreground">φ_y / φ_u (×10⁻³/in)</dt>
+            <dt className="text-muted-foreground">
+              φ_y {metrics.exactYield ? '(yield)' : '(equiv.)'} / φ_u (×10⁻³/in)
+            </dt>
             <dd className="font-mono font-semibold">
               {fmt(metrics.phiY * PHI_SCALE, 3)} / {fmt(metrics.phiU * PHI_SCALE, 3)}
             </dd>
