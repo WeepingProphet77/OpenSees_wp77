@@ -646,11 +646,18 @@ val momentCurvature(val spec) {
   val result = val::object();
   val pts = val::array();
 
-  // ---- section geometry (rectangular b×h discretized into layers) ----------
+  // ---- section geometry -----------------------------------------------------
+  // Two forms: an explicit concrete-fiber list `concreteFibers` (general section
+  // geometry — each {y: depth-from-top, area}), or a rectangular b×h section
+  // discretized into `concreteLayers` layers. `h` (total depth) is always given
+  // and is the reference for both concrete fibers and reinforcement.
   val sec = spec["section"];
   const double b = num(sec["b"]);
   const double h = num(sec["h"]);
   const int nLayers = static_cast<int>(num(sec["concreteLayers"], 40));
+  val jsFibers = spec["concreteFibers"];
+  const int nExplicit = len(jsFibers);
+  const int nConcrete = nExplicit > 0 ? nExplicit : nLayers;
 
   // ---- concrete (Concrete02) ------------------------------------------------
   val con = spec["concrete"];
@@ -666,18 +673,27 @@ val momentCurvature(val spec) {
 
   const int nSteel = len(spec["steel"]);
   const int nStrand = len(spec["strands"]);
-  FiberSection2d *section = new FiberSection2d(1, nLayers + nSteel + nStrand, true);
+  FiberSection2d *section = new FiberSection2d(1, nConcrete + nSteel + nStrand, true);
 
   // Fiber positions are passed measured UPWARD from mid-height, yUp = h/2 − depth
   // (depth = distance from the top fiber). With FiberSection2d's internal
   // convention this makes positive curvature = sagging and M > 0 = sagging,
-  // matching the TS design engine.
+  // matching the TS design engine. All fibers (concrete + reinforcement) share
+  // this reference so the geometry is consistent.
   int fiberTag = 1;
-  const double dy = h / nLayers;
-  for (int i = 0; i < nLayers; ++i) {
-    const double depth = (i + 0.5) * dy;  // from the top fiber
-    UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, h * 0.5 - depth);
-    section->addFiber(fib);
+  if (nExplicit > 0) {
+    for (int i = 0; i < nExplicit; ++i) {
+      val f = jsFibers[i];
+      UniaxialFiber2d fib(fiberTag++, conTmpl, num(f["area"]), h * 0.5 - num(f["y"]));
+      section->addFiber(fib);
+    }
+  } else {
+    const double dy = h / nLayers;
+    for (int i = 0; i < nLayers; ++i) {
+      const double depth = (i + 0.5) * dy;  // from the top fiber
+      UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, h * 0.5 - depth);
+      section->addFiber(fib);
+    }
   }
 
   // ---- mild-steel layers (ElasticPP) ----------------------------------------

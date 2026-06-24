@@ -21,12 +21,27 @@ list "as the linker reports missing symbols."
 Instead the driver uses the **real OpenSees `FiberSection2d` + materials** but
 hand-rolls only the *section-level* equilibrium loop:
 
-- Build the section by `addFiber` — concrete layers (`Concrete02`), mild steel
+- Build the section by `addFiber` — concrete fibers (`Concrete02`), mild steel
   (`ElasticPPMaterial`), and prestressing strand (see below).
 - Sweep curvature κ in increments. At each κ, **Newton-solve the section axial
   strain ε** so the net axial force equals the target (0 for a beam) using the
   section's own `getStressResultant()` / `getSectionTangent()`. Record
   M = `getStressResultant()(1)`, then `commitState()`.
+
+### Section geometry
+
+The ABI takes concrete fibers in one of two forms (`section.h` is always the
+reference depth):
+
+- **Rectangular** — `section.b` × `section.h`, discretized into `concreteLayers`
+  equal layers by the engine.
+- **General** — a top-level `concreteFibers` list (`{y: depth-from-top, area}`),
+  used when present. The TS `discretizeConcreteFibers(section, nStrips)` slices any
+  supported section (`sectionToPolygon`: flanges, multiple stems, voids/holes) into
+  horizontal strips, so the curve reflects the real flanged/voided geometry rather
+  than a rectangular approximation. `buildMomentCurvatureSpec(section, reinforcement,
+  fc)` assembles the full spec from a designed member (mild → `steel`, strand →
+  `strands` with grade power-formula params + `fse`).
 
 This is faithful (genuine OpenSees fiber section + constitutive models) while
 keeping the link surface to materials + section classes only — no Domain, no

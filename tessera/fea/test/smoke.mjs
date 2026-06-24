@@ -145,6 +145,20 @@ if (typeof mod.momentCurvature !== 'function') {
   check('prestress moment present at zero curvature', m0 > 500 ? 1 : 0, 1);
   check('ultimate capacity develops above the prestress moment', peak > 3000 && peak > m0 ? 1 : 0, 1);
 }
+
+// Case 6 — general geometry: an explicit concrete-fiber list reproduces the
+// rectangular b×h form when the fibers describe the same rectangle.
+{
+  const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;
+  const common = { concrete: { fc }, steel: [{ As, d, fy }], steps: 120, maxKappa: 3.0e-3 };
+  const rect = mod.momentCurvature({ section: { b, h, concreteLayers: 60 }, ...common });
+  const n = 60, dy = h / n;
+  const concreteFibers = Array.from({ length: n }, (_, i) => ({ y: (i + 0.5) * dy, area: b * dy }));
+  const gen = mod.momentCurvature({ section: { h }, concreteFibers, ...common });
+  console.log(`\n== M–φ (general geometry) ==  converged=${gen.converged} rectPeak=${(+rect.peakMoment).toPrecision(5)} genPeak=${(+gen.peakMoment).toPrecision(5)}`);
+  check('general-geometry solve converged', gen.converged ? 1 : 0, 1);
+  check('explicit fibers reproduce rectangular b×h peak', gen.peakMoment, rect.peakMoment, 0.02);
+}
 }  // end moment–curvature (production engine) guard
 
 console.log(`\n${fail === 0 ? 'ALL PASS' : 'FAILURES'} — ${pass} passed, ${fail} failed`);
