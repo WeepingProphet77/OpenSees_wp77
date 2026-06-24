@@ -23,7 +23,10 @@ import { Button } from '@/components/ui/button';
 import { SectionView } from '@/components/diagrams/SectionView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
 import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
+import { MomentCurvatureChart } from '@/components/diagrams/MomentCurvatureChart';
 import { InteractionDiagram } from '@/components/diagrams/InteractionDiagram';
+import { buildMomentCurvatureSpec } from '@/fea/momentCurvatureSpec';
+import { useMomentCurvature } from '@/fea/useMomentCurvature';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
 
@@ -127,6 +130,18 @@ export function MemberWorkspace() {
       lambda: design.lambda,
     });
   }, [isWall, analysis, design.L, design.fci, design.handlingImpact, design.lambda]);
+
+  // Fiber moment–curvature of the actual section (flexural members only). FEA is
+  // additive — a null spec or an unavailable engine just hides the chart.
+  const mcSpec = useMemo(() => {
+    if (isPM || !design.layers.some((r) => r.area > 0)) return null;
+    try {
+      return buildMomentCurvatureSpec(input.section, design.layers, design.fc);
+    } catch {
+      return null;
+    }
+  }, [isPM, input.section, design.layers, design.fc]);
+  const momentCurvature = useMomentCurvature(mcSpec);
 
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
@@ -522,6 +537,35 @@ export function MemberWorkspace() {
                 <StressStrainChart result={analysis.value.flexure} />
               </CardContent>
             </Card>
+
+            {!isPM && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Moment–curvature (fiber section)</CardTitle>
+                  <CardDescription>
+                    OpenSees-WASM fiber analysis of the actual section geometry; closed-form Mₙ and cracking
+                    moment overlaid for cross-check, with equivalent-yield ductility μ = φu/φy.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                  {momentCurvature.status === 'ready' && momentCurvature.result ? (
+                    <MomentCurvatureChart
+                      result={momentCurvature.result}
+                      closedFormMn={analysis.ok ? analysis.value.flexure.Mn : undefined}
+                      crackingMoment={analysis.ok ? analysis.value.flexure.cracking.Mcr : undefined}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {momentCurvature.status === 'loading'
+                        ? 'Computing moment–curvature…'
+                        : momentCurvature.status === 'idle'
+                          ? 'Add reinforcement to trace the moment–curvature response.'
+                          : 'Moment–curvature unavailable (FEA engine not loaded).'}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {pm && (
               <Card>

@@ -13,9 +13,21 @@
  */
 import { discretizeConcreteFibers, sectionToPolygon } from '@/engine/beamCalculations';
 import steelPresets from '@/engine/steelPresets';
-import type { SteelPreset } from '@/engine/types';
-import type { Section, ReinforcementLayer } from '@/schema/domain';
+import type { Section, SteelPreset } from '@/engine/types';
 import type { MomentCurvatureSpecInput } from './feaModel';
+
+/** Minimal reinforcement-layer shape the builder needs (domain layers and UI rows both satisfy it). */
+export interface ReinforcementInput {
+  kind: 'mild' | 'strand';
+  /** Steel area (in²). */
+  area: number;
+  /** Depth from the top compression fiber (in). */
+  depth: number;
+  /** Effective prestress after losses (ksi); 0 for mild. */
+  fse: number;
+  /** Reference into the grade catalog. */
+  gradeId?: string;
+}
 
 export interface BuildMomentCurvatureOptions {
   /** Grade catalog for `gradeId` lookup (project grades incl. user-defined); defaults to the built-in presets. */
@@ -50,7 +62,7 @@ function sectionDepth(section: Section): number {
  */
 export function buildMomentCurvatureSpec(
   section: Section,
-  reinforcement: ReinforcementLayer[],
+  reinforcement: readonly ReinforcementInput[],
   fc: number,
   opts: BuildMomentCurvatureOptions = {},
 ): MomentCurvatureSpecInput {
@@ -58,7 +70,7 @@ export function buildMomentCurvatureSpec(
   const byId = new Map(grades.map((g) => [g.id, g]));
   const nStrips = opts.concreteFibers ?? 60;
 
-  const grade = (layer: ReinforcementLayer): SteelPreset => {
+  const grade = (layer: ReinforcementInput): SteelPreset => {
     const fallback = layer.kind === 'strand' ? DEFAULT_STRAND : DEFAULT_MILD;
     return byId.get(layer.gradeId ?? fallback) ?? byId.get(fallback) ?? steelPresets.find((g) => g.id === fallback)!;
   };

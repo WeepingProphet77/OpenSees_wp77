@@ -100,6 +100,15 @@ linker reports them.
    `normalizeMomentCurvatureSpec`, ABI field names mirroring the C++), both
    `FeaEngine` implementations, and the worker protocol; tested in
    `feaSolve.test.ts` (RC peak ≈ Whitney Mn, prestressed M(0)>0, normalizer).
-2. M–φ chart in the member workspace (cracking / first-yield / ultimate, ductility
-   μ = φu/φy), with the closed-form power-formula φMn overlaid.
-3. (Optional) feed ductility / nonlinear capacity into the design checks.
+2. ~~General section geometry — fiber M–φ for flanged/voided precast, not just
+   rectangles.~~ **Done** — `discretizeConcreteFibers` (`sectionToPolygon` strips)
+   + a `concreteFibers` ABI form + `buildMomentCurvatureSpec`.
+3. ~~M–φ chart in the member workspace (equivalent-yield / nominal / ultimate,
+   ductility μ = φu/φy), with the closed-form Mₙ and cracking moment overlaid.~~
+   **Done** — `useMomentCurvature` hook, `MomentCurvatureChart`, and
+   `momentCurvatureMetrics` (peak Mn, secant-equivalent φy, φu, μ). The chart shows
+   for flexural members; the Eigen oracle path is untouched. *Note:* yield is the
+   reduced-stiffness equivalent (curve-only), not exact first-strand-yield — that
+   would need per-fiber strain output from the engine (a small future add).
+4. (Optional) feed ductility / nonlinear capacity into the design checks; exact
+   first-yield / crushing markers via per-point strain output.
