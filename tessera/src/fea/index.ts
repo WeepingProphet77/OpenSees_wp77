@@ -2,6 +2,7 @@
 export * from './feaModel';
 export * from './feaBuilders';
 export * from './feaDiagrams';
+export * from './momentCurvatureSpec';
 export {
   createWorkerFeaEngine,
   createDirectFeaEngine,

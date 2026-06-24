@@ -297,14 +297,27 @@ export function normalizeFeaModel(input: FeaModelInput): FeaModel {
 // follow the Devalapura–Tadros power formula (see engine/steelPresets). Sign
 // convention: positive curvature = sagging, M > 0 = sagging. Units: in, kip, ksi.
 
-/** Rectangular gross section, discretized into `concreteLayers` concrete fibers. */
+/**
+ * Section geometry. `h` (total depth) is always required and is the reference for
+ * fiber/reinforcement positions. Provide EITHER a rectangular width `b` (the
+ * engine discretizes it into `concreteLayers` layers) OR a top-level
+ * `concreteFibers` list for an arbitrary section.
+ */
 export const MomentCurvatureSectionSchema = z.object({
-  /** Section width b (in). */
-  b: z.number().positive(),
   /** Total section depth h (in). */
   h: z.number().positive(),
-  /** Number of concrete fiber layers across the depth (accuracy vs. cost). */
+  /** Rectangular width b (in); omit when supplying `concreteFibers`. */
+  b: z.number().positive().optional(),
+  /** Layers for the rectangular discretization (ignored when `concreteFibers` is set). */
   concreteLayers: z.number().int().positive().max(400).default(40),
+});
+
+/** One concrete fiber: a strip at depth `y` from the top fiber with area `area` (in²). */
+export const MomentCurvatureFiberSchema = z.object({
+  /** Depth from the top fiber to the fiber centroid (in). */
+  y: z.number().nonnegative(),
+  /** Fiber area (in²). */
+  area: z.number().positive(),
 });
 
 /**
@@ -372,6 +385,12 @@ export const MomentCurvatureStrandSchema = z.object({
 export const MomentCurvatureSpecSchema = z.object({
   section: MomentCurvatureSectionSchema,
   concrete: MomentCurvatureConcreteSchema,
+  /**
+   * Explicit concrete fibers for an arbitrary section (general geometry). When
+   * present and non-empty, the engine uses these instead of the rectangular
+   * `section.b` × `section.h` discretization.
+   */
+  concreteFibers: z.array(MomentCurvatureFiberSchema).default([]),
   steel: z.array(MomentCurvatureSteelSchema).default([]),
   strands: z.array(MomentCurvatureStrandSchema).default([]),
   /** External axial force (kip), tension positive; default 0 (pure flexure). */
@@ -406,6 +425,7 @@ export type MomentCurvatureSpecInput = z.input<typeof MomentCurvatureSpecSchema>
 export type MomentCurvatureSpec = z.infer<typeof MomentCurvatureSpecSchema>;
 export type MomentCurvatureResult = z.infer<typeof MomentCurvatureResultSchema>;
 export type MomentCurvaturePoint = z.infer<typeof MomentCurvaturePointSchema>;
+export type MomentCurvatureFiber = z.infer<typeof MomentCurvatureFiberSchema>;
 
 /**
  * Normalize and validate a moment–curvature spec: applies defaults (so the WASM
@@ -414,10 +434,17 @@ export type MomentCurvaturePoint = z.infer<typeof MomentCurvaturePointSchema>;
  */
 export function normalizeMomentCurvatureSpec(input: MomentCurvatureSpecInput): MomentCurvatureSpec {
   const spec = MomentCurvatureSpecSchema.parse(input);
-  const { h } = spec.section;
+  const { h, b } = spec.section;
   const fail = (msg: string): never => {
     throw new Error(`Invalid moment–curvature spec: ${msg}`);
   };
+  // Geometry: explicit fibers OR a rectangular width, exactly one usable form.
+  if (spec.concreteFibers.length === 0 && b == null) {
+    fail('section needs either a rectangular width b or a non-empty concreteFibers list');
+  }
+  for (const f of spec.concreteFibers) {
+    if (f.y > h) fail(`concrete fiber depth y=${f.y} exceeds section depth h=${h}`);
+  }
   for (const s of spec.steel) {
     if (s.d >= h) fail(`steel layer depth d=${s.d} must be within section depth h=${h}`);
   }

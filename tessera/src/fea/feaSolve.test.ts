@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDirectFeaEngine, type FeaEngine, type FeaModuleFactory } from './FeaEngine';
 import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
 import { normalizeFeaModel, normalizeMomentCurvatureSpec } from './feaModel';
+import { discretizeConcreteFibers } from '@/engine/beamCalculations';
 import { assembleBeamDiagram, computeMemberDiagrams, diagramExtreme, interpolateDiagram } from './feaDiagrams';
 
 const mjsPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.mjs`, import.meta.url));
@@ -547,6 +548,19 @@ describe.skipIf(!feaEngineHasMomentCurvature)('WASM fiber moment–curvature (Op
     expect(near(r.points[0].M, 0, 1, 1e-3)).toBe(true);
     expect(r.points[3].M).toBeGreaterThan(r.points[1].M);
     expect(r.points[3].kappa).toBeGreaterThan(r.points[1].kappa);
+    engine.dispose();
+  });
+
+  it('general-geometry fibers reproduce the rectangular b×h form', async () => {
+    const engine = makeEngine('feaEngine');
+    const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;
+    const common = { concrete: { fc }, steel: [{ As, d, fy }], steps: 120, maxKappa: 3e-3 };
+    const rect = await engine.momentCurvature({ section: { b, h, concreteLayers: 60 }, ...common });
+    // The same rectangle, discretized into explicit fibers by the TS discretizer.
+    const concreteFibers = discretizeConcreteFibers({ id: 's', sectionType: 'rectangular', bw: b, h }, 60);
+    const general = await engine.momentCurvature({ section: { h }, concreteFibers, ...common });
+    expect(general.converged).toBe(true);
+    expect(near(general.peakMoment, rect.peakMoment, 0.02)).toBe(true); // within 2%
     engine.dispose();
   });
 

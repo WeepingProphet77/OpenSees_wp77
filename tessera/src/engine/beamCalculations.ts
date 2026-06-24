@@ -976,6 +976,51 @@ function ringsOf(polySpec: PolySpec): { positive: Point[][]; holes: Point[][] } 
   return { positive, holes };
 }
 
+/** A horizontal concrete strip: net area `area` (in²) centered at depth `y` from the top fiber (in). */
+export interface ConcreteFiberStrip {
+  y: number;
+  area: number;
+}
+
+/**
+ * Discretize any supported section into horizontal concrete fiber strips for a
+ * fiber moment–curvature analysis. The section is polygonized (`sectionToPolygon`,
+ * incl. flanges, multiple stems, and voids/holes) and sliced into `nStrips` equal
+ * depth bands; each band's net area is the difference of the cumulative
+ * area-above-depth, placed at the band midpoint. Empty bands (e.g. between double-tee
+ * stems) are dropped. Depths run from the top compression fiber (y = 0) down.
+ */
+export function discretizeConcreteFibers(section: Section, nStrips = 60): ConcreteFiberStrip[] {
+  const { positive, holes } = ringsOf(sectionToPolygon(section));
+  if (positive.length === 0) return [];
+
+  let h = section.h ?? 0;
+  if (!(h > 0)) {
+    for (const ring of [...positive, ...holes]) for (const p of ring) if (p.y > h) h = p.y;
+  }
+  if (!(h > 0)) return [];
+
+  // Net concrete area between the top fiber (y = 0) and depth a.
+  const areaAbove = (a: number): number => {
+    let area = 0;
+    for (const r of positive) area += Math.abs(ringSignedArea(clipRingBelow(r, a)));
+    for (const hl of holes) area -= Math.abs(ringSignedArea(clipRingBelow(hl, a)));
+    return Math.max(area, 0);
+  };
+
+  const out: ConcreteFiberStrip[] = [];
+  const dy = h / nStrips;
+  let prev = 0; // areaAbove(0)
+  for (let i = 0; i < nStrips; i++) {
+    const a1 = (i + 1) * dy;
+    const cur = areaAbove(a1);
+    const area = cur - prev;
+    prev = cur;
+    if (area > 1e-9) out.push({ y: (i * dy + a1) / 2, area });
+  }
+  return out;
+}
+
 interface RingIntegrals {
   A: number;
   Sx: number;
