@@ -44,5 +44,15 @@ self.onmessage = async (ev: MessageEvent<FeaWorkerRequest>) => {
     } catch (e) {
       post({ type: 'error', id: msg.id, error: e instanceof Error ? e.message : String(e) });
     }
+    return;
+  }
+  if (msg.type === 'momentCurvature') {
+    try {
+      const mod = await modulePromise!;
+      const result = mod.momentCurvature(msg.spec);
+      post({ type: 'result', id: msg.id, result });
+    } catch (e) {
+      post({ type: 'error', id: msg.id, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 };

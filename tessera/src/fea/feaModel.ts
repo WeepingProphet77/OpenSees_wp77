@@ -283,3 +283,149 @@ export function normalizeFeaModel(input: FeaModelInput): FeaModel {
   }
   return model;
 }
+
+// ===========================================================================
+// Fiber-section moment–curvature (build spec §2.2 — nonlinear capacity)
+// ===========================================================================
+//
+// A separate, section-level analysis (NOT a frame model): the WASM engine builds
+// a real OpenSees `FiberSection2d` from a rectangular concrete section with mild
+// steel and/or prestressing strand, and sweeps curvature to trace M–φ. The TS
+// design engine's closed-form power-formula φMn is the cross-check/overlay.
+//
+// Field names mirror the C++ `momentCurvature(spec)` ABI exactly. Material params
+// follow the Devalapura–Tadros power formula (see engine/steelPresets). Sign
+// convention: positive curvature = sagging, M > 0 = sagging. Units: in, kip, ksi.
+
+/** Rectangular gross section, discretized into `concreteLayers` concrete fibers. */
+export const MomentCurvatureSectionSchema = z.object({
+  /** Section width b (in). */
+  b: z.number().positive(),
+  /** Total section depth h (in). */
+  h: z.number().positive(),
+  /** Number of concrete fiber layers across the depth (accuracy vs. cost). */
+  concreteLayers: z.number().int().positive().max(400).default(40),
+});
+
+/**
+ * Concrete constitutive params (OpenSees `Concrete02`). Only `fc` is required;
+ * the rest default in the C++ from `fc`/`Ec` when omitted (so leave them unset
+ * unless overriding). Compression strains/stresses are negative.
+ */
+export const MomentCurvatureConcreteSchema = z.object({
+  /** Compressive strength f′c (+ksi). */
+  fc: z.number().positive(),
+  /** Elastic modulus Ec (ksi); default 57000√(f′c·1000)/1000. */
+  Ec: z.number().positive().optional(),
+  /** Strain at f′c (negative); default −2f′c/Ec. */
+  epsc0: z.number().negative().optional(),
+  /** Crushing residual stress (negative); default −0.2f′c. */
+  fcu: z.number().negative().optional(),
+  /** Ultimate compressive strain (negative); default −0.003. */
+  epscu: z.number().negative().optional(),
+  /** Unload/reload stiffness ratio; default 0.1. */
+  ratio: z.number().positive().optional(),
+  /** Tensile strength ft (+ksi); default 7.5√(f′c·1000)/1000. */
+  ft: z.number().nonnegative().optional(),
+  /** Tension softening stiffness Ets (ksi); default ft/0.002. */
+  Ets: z.number().positive().optional(),
+});
+
+/** Mild-steel reinforcement layer (modeled elastic-perfectly-plastic). */
+export const MomentCurvatureSteelSchema = z.object({
+  /** Steel area As (in²). */
+  As: z.number().positive(),
+  /** Depth from the top fiber to the layer (in). */
+  d: z.number().positive(),
+  /** Yield strength fy (ksi). */
+  fy: z.number().positive(),
+  /** Elastic modulus Es (ksi). */
+  Es: z.number().positive().default(29000),
+});
+
+/**
+ * Prestressing strand layer (Devalapura–Tadros power formula, pretensioned via an
+ * initial strain εse = fse/Eps). Defaults are ASTM A416 Gr. 270 LR strand —
+ * caller should pass the values from the member's selected strand preset.
+ */
+export const MomentCurvatureStrandSchema = z.object({
+  /** Strand area Aps (in²). */
+  Aps: z.number().positive(),
+  /** Depth from the top fiber to the layer (in). */
+  d: z.number().positive(),
+  /** Effective prestress fse after losses (ksi). */
+  fse: z.number().nonnegative().default(0),
+  /** Elastic modulus Eps (ksi). */
+  Eps: z.number().positive().default(28800),
+  /** Yield strength fpy (ksi). */
+  fpy: z.number().positive().default(243),
+  /** Ultimate strength fpu (ksi); also the stress cap. */
+  fpu: z.number().positive().default(270),
+  /** Power-formula Q. */
+  Q: z.number().default(0.031),
+  /** Power-formula K. */
+  K: z.number().positive().default(1.043),
+  /** Power-formula R. */
+  R: z.number().positive().default(7.36),
+});
+
+export const MomentCurvatureSpecSchema = z.object({
+  section: MomentCurvatureSectionSchema,
+  concrete: MomentCurvatureConcreteSchema,
+  steel: z.array(MomentCurvatureSteelSchema).default([]),
+  strands: z.array(MomentCurvatureStrandSchema).default([]),
+  /** External axial force (kip), tension positive; default 0 (pure flexure). */
+  axial: z.number().default(0),
+  /** Number of curvature increments in the sweep. */
+  steps: z.number().int().positive().max(2000).default(80),
+  /** Maximum curvature of the sweep (1/in); the sweep stops earlier at ultimate. */
+  maxKappa: z.number().positive().default(3e-3),
+});
+
+/** One point on the moment–curvature curve. */
+export const MomentCurvaturePointSchema = z.object({
+  /** Curvature φ (1/in), sagging positive. */
+  kappa: z.number(),
+  /** Section moment M (kip-in), sagging positive. */
+  M: z.number(),
+  /** Section centroidal axial strain at axial equilibrium. */
+  eps: z.number(),
+});
+
+export const MomentCurvatureResultSchema = z.object({
+  /** True if the full sweep ran (or stopped cleanly at section ultimate). */
+  converged: z.boolean(),
+  message: z.string(),
+  solver: z.string(),
+  /** Peak (signed) moment over the recorded points (≈ nominal capacity Mn). */
+  peakMoment: z.number(),
+  points: z.array(MomentCurvaturePointSchema),
+});
+
+export type MomentCurvatureSpecInput = z.input<typeof MomentCurvatureSpecSchema>;
+export type MomentCurvatureSpec = z.infer<typeof MomentCurvatureSpecSchema>;
+export type MomentCurvatureResult = z.infer<typeof MomentCurvatureResultSchema>;
+export type MomentCurvaturePoint = z.infer<typeof MomentCurvaturePointSchema>;
+
+/**
+ * Normalize and validate a moment–curvature spec: applies defaults (so the WASM
+ * ABI sees every field) and checks reinforcement depths lie within the section
+ * and that the section actually has reinforcement.
+ */
+export function normalizeMomentCurvatureSpec(input: MomentCurvatureSpecInput): MomentCurvatureSpec {
+  const spec = MomentCurvatureSpecSchema.parse(input);
+  const { h } = spec.section;
+  const fail = (msg: string): never => {
+    throw new Error(`Invalid moment–curvature spec: ${msg}`);
+  };
+  for (const s of spec.steel) {
+    if (s.d >= h) fail(`steel layer depth d=${s.d} must be within section depth h=${h}`);
+  }
+  for (const s of spec.strands) {
+    if (s.d >= h) fail(`strand layer depth d=${s.d} must be within section depth h=${h}`);
+  }
+  if (spec.steel.length === 0 && spec.strands.length === 0) {
+    fail('section has no reinforcement (add at least one steel or strand layer)');
+  }
+  return spec;
+}
