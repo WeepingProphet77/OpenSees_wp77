@@ -681,20 +681,35 @@ val momentCurvature(val spec) {
   // matching the TS design engine. All fibers (concrete + reinforcement) share
   // this reference so the geometry is consistent.
   int fiberTag = 1;
+  std::vector<double> concYUp;  // concrete fiber positions (up from mid-height)
+  concYUp.reserve(nConcrete);
   if (nExplicit > 0) {
     for (int i = 0; i < nExplicit; ++i) {
       val f = jsFibers[i];
-      UniaxialFiber2d fib(fiberTag++, conTmpl, num(f["area"]), h * 0.5 - num(f["y"]));
+      const double yUp = h * 0.5 - num(f["y"]);
+      UniaxialFiber2d fib(fiberTag++, conTmpl, num(f["area"]), yUp);
       section->addFiber(fib);
+      concYUp.push_back(yUp);
     }
   } else {
     const double dy = h / nLayers;
     for (int i = 0; i < nLayers; ++i) {
       const double depth = (i + 0.5) * dy;  // from the top fiber
-      UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, h * 0.5 - depth);
+      const double yUp = h * 0.5 - depth;
+      UniaxialFiber2d fib(fiberTag++, conTmpl, b * dy, yUp);
       section->addFiber(fib);
+      concYUp.push_back(yUp);
     }
   }
+
+  // Reinforcement landmark data: position, locked-in prestrain, and yield strain.
+  // First yield is the first reinforcement fiber whose TOTAL tensile strain
+  // (section strain + prestrain) reaches its yield strain — mild fy/Es; strand
+  // 0.010, the ASTM A416 1%-extension definition of fpy.
+  struct ReinfInfo { double yUp, prestrain, yieldStrain; };
+  std::vector<ReinfInfo> reinf;
+  reinf.reserve(nSteel + nStrand);
+  constexpr double STRAND_YIELD_STRAIN = 0.010;
 
   // ---- mild-steel layers (ElasticPP) ----------------------------------------
   val steels = spec["steel"];
@@ -702,9 +717,11 @@ val momentCurvature(val spec) {
     val s = steels[i];
     const double Es = num(s["Es"], 29000.0);
     const double fy = num(s["fy"]);
+    const double yUp = h * 0.5 - num(s["d"]);
     ElasticPPMaterial steelTmpl(100 + i, Es, fy / Es);
-    UniaxialFiber2d fib(fiberTag++, steelTmpl, num(s["As"]), h * 0.5 - num(s["d"]));
+    UniaxialFiber2d fib(fiberTag++, steelTmpl, num(s["As"]), yUp);
     section->addFiber(fib);
+    reinf.push_back({yUp, 0.0, fy / Es});
   }
 
   // ---- prestressing strand layers (power formula + InitStrain prestrain) ----
@@ -718,10 +735,12 @@ val momentCurvature(val spec) {
     const double K = num(s["K"], 1.04);
     const double R = num(s["R"], 7.36);
     const double fse = num(s["fse"], 0.0);  // effective prestress (ksi)
+    const double yUp = h * 0.5 - num(s["d"]);
     PowerFormulaStrand strandTmpl(200 + i, Eps, fpy, Q, K, R, fpu);
     InitStrainMaterial pretensioned(300 + i, strandTmpl, fse / Eps);
-    UniaxialFiber2d fib(fiberTag++, pretensioned, num(s["Aps"]), h * 0.5 - num(s["d"]));
+    UniaxialFiber2d fib(fiberTag++, pretensioned, num(s["Aps"]), yUp);
     section->addFiber(fib);
+    reinf.push_back({yUp, fse / Eps, STRAND_YIELD_STRAIN});
   }
 
   // ---- curvature sweep with a section-level axial-equilibrium Newton --------
@@ -730,6 +749,18 @@ val momentCurvature(val spec) {
   const double maxKappa = num(spec["maxKappa"], 3.0e-3);
   const double dKappa = steps > 0 ? maxKappa / steps : 0.0;
   const double tolN = 1e-6 * (b * h * fc + 1.0);
+
+  // Landmark detection: first crossing (linearly interpolated between steps) of
+  // concrete cracking (extreme tension fiber reaches ft/Ec), reinforcement first
+  // yield (any bar's total tensile strain reaches its yield strain), and concrete
+  // crushing (extreme compression fiber reaches εcu). Fiber strain follows the
+  // section convention ε = eps − yUp·κ, so it is reconstructed exactly without
+  // querying individual fibers.
+  const double epsCrack = ft / Ec;  // +tensile concrete cracking strain
+  struct Landmark { bool hit; double kappa, M, strain; };
+  Landmark crackEvt{false, 0, 0, 0}, yieldEvt{false, 0, 0, 0}, crushEvt{false, 0, 0, 0};
+  bool havePrev = false;
+  double pKappa = 0, pM = 0, pConcMax = 0, pConcMin = 0, pYieldRatio = 0;
 
   section->revertToStart();
   Vector e(2);
@@ -770,10 +801,54 @@ val momentCurvature(val spec) {
     p.set("M", M);
     p.set("eps", eps);
     pts.call<void>("push", p);
+
+    // ---- landmark strains at this committed step ---------------------------
+    double concMin = 1e30, concMax = -1e30;
+    for (const double yUp : concYUp) {
+      const double s = eps - yUp * kappa;
+      if (s < concMin) concMin = s;
+      if (s > concMax) concMax = s;
+    }
+    double yieldRatio = 0.0, govStrain = 0.0;
+    for (const auto &r : reinf) {
+      const double tot = (eps - r.yUp * kappa) + r.prestrain;  // section + prestrain
+      if (tot > 0.0) {
+        const double ratio = tot / r.yieldStrain;
+        if (ratio > yieldRatio) { yieldRatio = ratio; govStrain = tot; }
+      }
+    }
+    if (havePrev) {
+      auto frac = [](double v0, double v1, double vt) { return v1 == v0 ? 0.0 : (vt - v0) / (v1 - v0); };
+      auto at = [&](double f, double strain) {
+        return Landmark{true, pKappa + f * (kappa - pKappa), pM + f * (M - pM), strain};
+      };
+      if (!crackEvt.hit && pConcMax < epsCrack && concMax >= epsCrack)
+        crackEvt = at(frac(pConcMax, concMax, epsCrack), epsCrack);
+      if (!yieldEvt.hit && pYieldRatio < 1.0 && yieldRatio >= 1.0)
+        yieldEvt = at(frac(pYieldRatio, yieldRatio, 1.0), govStrain);
+      if (!crushEvt.hit && pConcMin > epscu && concMin <= epscu)
+        crushEvt = at(frac(pConcMin, concMin, epscu), epscu);
+    }
+    pKappa = kappa; pM = M; pConcMax = concMax; pConcMin = concMin; pYieldRatio = yieldRatio;
+    havePrev = true;
   }
+
+  auto lm = [](const Landmark &ev) -> val {
+    if (!ev.hit) return val::null();
+    val o = val::object();
+    o.set("kappa", ev.kappa);
+    o.set("M", ev.M);
+    o.set("strain", ev.strain);
+    return o;
+  };
+  val landmarks = val::object();
+  landmarks.set("cracking", lm(crackEvt));
+  landmarks.set("firstYield", lm(yieldEvt));
+  landmarks.set("crushing", lm(crushEvt));
 
   result.set("points", pts);
   result.set("peakMoment", peakM);
+  result.set("landmarks", landmarks);
   result.set("converged", converged);
   result.set("message", message);
   result.set("solver", std::string("OpenSees FiberSection2d moment–curvature (pure C++)"));

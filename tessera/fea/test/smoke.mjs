@@ -159,6 +159,29 @@ if (typeof mod.momentCurvature !== 'function') {
   check('general-geometry solve converged', gen.converged ? 1 : 0, 1);
   check('explicit fibers reproduce rectangular b×h peak', gen.peakMoment, rect.peakMoment, 0.02);
 }
+
+// Case 7 — exact landmarks: an RC section cracks, then yields, then crushes.
+{
+  const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5, Es = 29000;
+  const r = mod.momentCurvature({
+    section: { b, h, concreteLayers: 60 },
+    concrete: { fc },
+    steel: [{ As, d, fy, Es }],
+    strands: [],
+    steps: 200,
+    maxKappa: 4.0e-3,
+  });
+  const lm = r.landmarks ?? {};
+  const cr = lm.cracking, fyld = lm.firstYield, cu = lm.crushing;
+  console.log(`\n== M–φ (landmarks) ==  crack φ=${cr ? cr.kappa.toExponential(2) : 'null'} yield φ=${fyld ? fyld.kappa.toExponential(2) : 'null'} crush φ=${cu ? cu.kappa.toExponential(2) : 'null'}`);
+  check('first-yield landmark present', fyld ? 1 : 0, 1);
+  check('crushing landmark present', cu ? 1 : 0, 1);
+  check('cracking landmark present', cr ? 1 : 0, 1);
+  check('ordering: crack < yield < crush', cr && fyld && cu && cr.kappa < fyld.kappa && fyld.kappa < cu.kappa ? 1 : 0, 1);
+  check('first yield ≈ εy = fy/Es', fyld ? fyld.strain : 0, fy / Es, 0.0, 1e-3);
+  check('crushing ≈ εcu = -0.003', cu ? cu.strain : 0, -0.003, 0.0, 1e-6);
+  check('μ = φu/φy > 1', fyld && cu && cu.kappa / fyld.kappa > 1 ? 1 : 0, 1);
+}
 }  // end moment–curvature (production engine) guard
 
 console.log(`\n${fail === 0 ? 'ALL PASS' : 'FAILURES'} — ${pass} passed, ${fail} failed`);

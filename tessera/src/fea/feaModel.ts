@@ -411,6 +411,28 @@ export const MomentCurvaturePointSchema = z.object({
   eps: z.number(),
 });
 
+/**
+ * An exact response landmark detected by the engine during the sweep (first
+ * threshold crossing, linearly interpolated). `strain` is the triggering fiber
+ * strain (signed): tensile cracking strain, reinforcement total tensile strain
+ * at yield, or the negative concrete crushing strain.
+ */
+export const MomentCurvatureLandmarkSchema = z.object({
+  kappa: z.number(),
+  M: z.number(),
+  strain: z.number(),
+});
+
+/** Exact landmarks; each is null if the event was not reached within the sweep. */
+export const MomentCurvatureLandmarksSchema = z.object({
+  /** Concrete extreme-tension fiber reaches ft/Ec. */
+  cracking: MomentCurvatureLandmarkSchema.nullable().default(null),
+  /** First reinforcement fiber reaches its yield strain (mild fy/Es; strand 1%). */
+  firstYield: MomentCurvatureLandmarkSchema.nullable().default(null),
+  /** Concrete extreme-compression fiber reaches εcu. */
+  crushing: MomentCurvatureLandmarkSchema.nullable().default(null),
+});
+
 export const MomentCurvatureResultSchema = z.object({
   /** True if the full sweep ran (or stopped cleanly at section ultimate). */
   converged: z.boolean(),
@@ -419,12 +441,20 @@ export const MomentCurvatureResultSchema = z.object({
   /** Peak (signed) moment over the recorded points (≈ nominal capacity Mn). */
   peakMoment: z.number(),
   points: z.array(MomentCurvaturePointSchema),
+  /** Exact cracking / first-yield / crushing landmarks (absent on older engines). */
+  landmarks: MomentCurvatureLandmarksSchema.default({
+    cracking: null,
+    firstYield: null,
+    crushing: null,
+  }),
 });
 
 export type MomentCurvatureSpecInput = z.input<typeof MomentCurvatureSpecSchema>;
 export type MomentCurvatureSpec = z.infer<typeof MomentCurvatureSpecSchema>;
 export type MomentCurvatureResult = z.infer<typeof MomentCurvatureResultSchema>;
 export type MomentCurvaturePoint = z.infer<typeof MomentCurvaturePointSchema>;
+export type MomentCurvatureLandmark = z.infer<typeof MomentCurvatureLandmarkSchema>;
+export type MomentCurvatureLandmarks = z.infer<typeof MomentCurvatureLandmarksSchema>;
 export type MomentCurvatureFiber = z.infer<typeof MomentCurvatureFiberSchema>;
 
 /**
