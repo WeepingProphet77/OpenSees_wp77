@@ -79,8 +79,12 @@ linker reports them.
 
 ## Next
 
-1. TS schema for the section/material spec + `MomentCurvatureResult`; expose
-   `FeaEngine.momentCurvature` and wire the worker.
+1. ~~TS schema for the section/material spec + `MomentCurvatureResult`; expose
+   `FeaEngine.momentCurvature` and wire the worker.~~ **Done** — `feaModel.ts`
+   (`MomentCurvatureSpecSchema` / `MomentCurvatureResultSchema` /
+   `normalizeMomentCurvatureSpec`, ABI field names mirroring the C++), both
+   `FeaEngine` implementations, and the worker protocol; tested in
+   `feaSolve.test.ts` (RC peak ≈ Whitney Mn, prestressed M(0)>0, normalizer).
 2. M–φ chart in the member workspace (cracking / first-yield / ultimate, ductility
    μ = φu/φy), with the closed-form power-formula φMn overlaid.
 3. (Optional) feed ductility / nonlinear capacity into the design checks.

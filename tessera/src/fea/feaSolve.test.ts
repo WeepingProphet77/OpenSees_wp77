@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDirectFeaEngine, type FeaEngine, type FeaModuleFactory } from './FeaEngine';
 import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
-import { normalizeFeaModel } from './feaModel';
+import { normalizeFeaModel, normalizeMomentCurvatureSpec } from './feaModel';
 import { assembleBeamDiagram, computeMemberDiagrams, diagramExtreme, interpolateDiagram } from './feaDiagrams';
 
 const mjsPath = (base: string) => fileURLToPath(new URL(`../../public/fea/${base}.mjs`, import.meta.url));
@@ -41,6 +41,24 @@ const ENGINES = [
   { name: 'OpenSees (production)', base: 'feaEngine', solverRe: /OpenSees/ },
   { name: 'Eigen (oracle)', base: 'feaEngineEigen', solverRe: /Eigen/ },
 ].filter((e) => isBuilt(e.base));
+
+// Capability probe: moment–curvature is a newer binding, so skip those suites if
+// the built module predates it (stale local artifact) rather than fail. CI builds
+// fresh, so they run there.
+let feaEngineHasMomentCurvature = false;
+if (isBuilt('feaEngine')) {
+  try {
+    const mod = (await import(/* @vite-ignore */ pathToFileURL(mjsPath('feaEngine')).href)) as {
+      default: FeaModuleFactory;
+    };
+    const instance = (await mod.default({ locateFile: () => wasmPath('feaEngine') })) as Partial<
+      Record<'momentCurvature', unknown>
+    >;
+    feaEngineHasMomentCurvature = typeof instance.momentCurvature === 'function';
+  } catch {
+    feaEngineHasMomentCurvature = false;
+  }
+}
 
 describe.skipIf(ENGINES.length === 0)('WASM elastic 2D frame solve (closed-form parity)', () => {
   for (const eng of ENGINES) {
@@ -462,6 +480,89 @@ describe.skipIf(!isBuilt('feaEngine'))('member diagrams end-to-end (buildSimpleB
     expect(midDefl).toBeLessThan(0);
     expect(near(midDefl, (-5 * w * L ** 4) / (384 * E * I), 2e-3)).toBe(true);
     expect(near(beam.deflection[0].value, 0, 1, 1e-6)).toBe(true); // pinned end
+    engine.dispose();
+  });
+});
+
+// Fiber-section moment–curvature spec normalization (pure TS — always runs).
+describe('normalizeMomentCurvatureSpec', () => {
+  it('applies ABI defaults (layers, steps, maxKappa, material params)', () => {
+    const s = normalizeMomentCurvatureSpec({
+      section: { b: 12, h: 24 },
+      concrete: { fc: 5 },
+      steel: [{ As: 2, d: 21, fy: 60 }],
+    });
+    expect(s.section.concreteLayers).toBe(40);
+    expect(s.steps).toBe(80);
+    expect(s.maxKappa).toBe(3e-3);
+    expect(s.axial).toBe(0);
+    expect(s.steel[0].Es).toBe(29000);
+    expect(s.strands).toEqual([]);
+  });
+
+  it('defaults strands to Gr. 270 LR params', () => {
+    const s = normalizeMomentCurvatureSpec({
+      section: { b: 12, h: 24 },
+      concrete: { fc: 6 },
+      strands: [{ Aps: 0.918, d: 20, fse: 175 }],
+    });
+    const st = s.strands[0];
+    expect([st.Eps, st.fpy, st.fpu, st.Q, st.K, st.R]).toEqual([28800, 243, 270, 0.031, 1.043, 7.36]);
+  });
+
+  it('rejects a reinforcement depth beyond the section and an unreinforced section', () => {
+    expect(() =>
+      normalizeMomentCurvatureSpec({ section: { b: 12, h: 24 }, concrete: { fc: 5 }, steel: [{ As: 2, d: 30, fy: 60 }] }),
+    ).toThrow(/within section depth/);
+    expect(() =>
+      normalizeMomentCurvatureSpec({ section: { b: 12, h: 24 }, concrete: { fc: 5 }, strands: [{ Aps: 0.9, d: 26 }] }),
+    ).toThrow(/within section depth/);
+    expect(() => normalizeMomentCurvatureSpec({ section: { b: 12, h: 24 }, concrete: { fc: 5 } })).toThrow(
+      /no reinforcement/,
+    );
+  });
+});
+
+// Fiber-section moment–curvature numerics through the engine — production only
+// (the Eigen oracle is linear-elastic and has no momentCurvature). Validated
+// against closed-form flexural capacity, mirroring the C++ smoke test.
+describe.skipIf(!feaEngineHasMomentCurvature)('WASM fiber moment–curvature (OpenSees)', () => {
+  it('RC section: peak ≈ Whitney Mn, rising onset, zero moment at zero curvature', async () => {
+    const engine = makeEngine('feaEngine');
+    const b = 12, h = 24, d = 21.5, As = 3.0, fy = 60, fc = 5;
+    const r = await engine.momentCurvature({
+      section: { b, h, concreteLayers: 50 },
+      concrete: { fc },
+      steel: [{ As, d, fy }],
+      steps: 120,
+      maxKappa: 3e-3,
+    });
+    expect(r.converged).toBe(true);
+    expect(r.solver).toMatch(/FiberSection2d/);
+    expect(r.points.length).toBeGreaterThan(20);
+
+    const a = (As * fy) / (0.85 * fc * b);
+    const Mn = As * fy * (d - a / 2); // Whitney stress-block nominal moment
+    expect(near(r.peakMoment, Mn, 0.12)).toBe(true);
+    expect(near(r.points[0].M, 0, 1, 1e-3)).toBe(true);
+    expect(r.points[3].M).toBeGreaterThan(r.points[1].M);
+    expect(r.points[3].kappa).toBeGreaterThan(r.points[1].kappa);
+    engine.dispose();
+  });
+
+  it('prestressed section: positive holding moment at κ=0, ultimate climbs above it', async () => {
+    const engine = makeEngine('feaEngine');
+    const r = await engine.momentCurvature({
+      section: { b: 12, h: 24, concreteLayers: 50 },
+      concrete: { fc: 6 },
+      strands: [{ Aps: 0.918, d: 20, fse: 175 }], // Gr. 270 LR defaults
+      steps: 120,
+      maxKappa: 3e-3,
+    });
+    expect(r.converged).toBe(true);
+    expect(r.points[0].M).toBeGreaterThan(500); // eccentric prestress holding moment
+    expect(r.peakMoment).toBeGreaterThan(3000);
+    expect(r.peakMoment).toBeGreaterThan(r.points[0].M);
     engine.dispose();
   });
 });

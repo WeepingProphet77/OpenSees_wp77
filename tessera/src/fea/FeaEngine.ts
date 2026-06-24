@@ -17,9 +17,13 @@
  */
 import {
   FeaResultSchema,
+  MomentCurvatureResultSchema,
   normalizeFeaModel,
+  normalizeMomentCurvatureSpec,
   type FeaModelInput,
   type FeaResult,
+  type MomentCurvatureResult,
+  type MomentCurvatureSpecInput,
 } from './feaModel';
 
 export interface FeaEngine {
@@ -27,6 +31,12 @@ export interface FeaEngine {
   ready(): Promise<void>;
   /** Validate, solve, and return a parsed result. Rejects on invalid input or solver failure. */
   solve(model: FeaModelInput): Promise<FeaResult>;
+  /**
+   * Trace a fiber-section moment–curvature curve (nonlinear capacity). Rejects on
+   * invalid input; a section that fails to reach equilibrium is reported via
+   * `converged === false`, not a rejection (same contract as `solve`).
+   */
+  momentCurvature(spec: MomentCurvatureSpecInput): Promise<MomentCurvatureResult>;
   /** Release the underlying worker/module. */
   dispose(): void;
 }
@@ -34,6 +44,7 @@ export interface FeaEngine {
 /** Minimal shape of the Emscripten module this engine drives. */
 export interface FeaWasmModule {
   solve(model: unknown): unknown;
+  momentCurvature(spec: unknown): unknown;
 }
 
 export type FeaModuleFactory = (opts?: {
@@ -76,6 +87,12 @@ export function createDirectFeaEngine(loadFactory: () => Promise<FeaModuleFactor
       const raw = mod.solve(normalized);
       return FeaResultSchema.parse(raw);
     },
+    async momentCurvature(spec) {
+      const normalized = normalizeMomentCurvatureSpec(spec);
+      const mod = await getModule();
+      const raw = mod.momentCurvature(normalized);
+      return MomentCurvatureResultSchema.parse(raw);
+    },
     dispose() {
       modulePromise = null;
     },
@@ -86,7 +103,8 @@ export function createDirectFeaEngine(loadFactory: () => Promise<FeaModuleFactor
 
 export type FeaWorkerRequest =
   | { type: 'init'; moduleUrl: string }
-  | { type: 'solve'; id: number; model: unknown };
+  | { type: 'solve'; id: number; model: unknown }
+  | { type: 'momentCurvature'; id: number; spec: unknown };
 
 export type FeaWorkerResponse =
   | { type: 'ready' }
@@ -113,7 +131,12 @@ export function createWorkerFeaEngine(options: WorkerFeaEngineOptions = {}): Fea
     new Worker(new URL('./feaWorker.ts', import.meta.url), { type: 'module' });
 
   let nextId = 1;
-  const pending = new Map<number, { resolve: (r: FeaResult) => void; reject: (e: Error) => void }>();
+  // Each pending request carries its own parser so one worker channel can serve
+  // both `solve` (FeaResult) and `momentCurvature` (MomentCurvatureResult).
+  const pending = new Map<
+    number,
+    { resolve: (r: unknown) => void; reject: (e: Error) => void; parse: (raw: unknown) => unknown }
+  >();
   let readyResolve!: () => void;
   let readyReject!: (e: Error) => void;
   const readyPromise = new Promise<void>((res, rej) => {
@@ -135,7 +158,7 @@ export function createWorkerFeaEngine(options: WorkerFeaEngineOptions = {}): Fea
         if (p) {
           pending.delete(msg.id);
           try {
-            p.resolve(FeaResultSchema.parse(msg.result));
+            p.resolve(p.parse(msg.result));
           } catch (e) {
             p.reject(e instanceof Error ? e : new Error(String(e)));
           }
@@ -168,8 +191,20 @@ export function createWorkerFeaEngine(options: WorkerFeaEngineOptions = {}): Fea
       const normalized = normalizeFeaModel(model);
       const id = nextId++;
       return new Promise<FeaResult>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        pending.set(id, { resolve: resolve as (r: unknown) => void, reject, parse: FeaResultSchema.parse });
         worker.postMessage({ type: 'solve', id, model: normalized } satisfies FeaWorkerRequest);
+      });
+    },
+    momentCurvature(spec) {
+      const normalized = normalizeMomentCurvatureSpec(spec);
+      const id = nextId++;
+      return new Promise<MomentCurvatureResult>((resolve, reject) => {
+        pending.set(id, {
+          resolve: resolve as (r: unknown) => void,
+          reject,
+          parse: MomentCurvatureResultSchema.parse,
+        });
+        worker.postMessage({ type: 'momentCurvature', id, spec: normalized } satisfies FeaWorkerRequest);
       });
     },
     dispose() {
