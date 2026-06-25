@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FeaModelSchema, FeaResultSchema, normalizeFeaModel } from './feaModel';
-import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
+import { buildPortalFrame, buildSimpleBeam, buildVierendeelFrame } from './feaBuilders';
 
 describe('FeaModel schema & normalization', () => {
   it('applies defaults for analysis, dimension, element type, and load components', () => {
@@ -110,6 +110,53 @@ describe('FEA builders', () => {
   it('buildPortalFrame applies beam gravity as a downward local load', () => {
     const m = normalizeFeaModel(buildPortalFrame({ span: 240, height: 144, E: 4000, A: 12, I: 300, beamGravity: 0.02 }));
     expect(m.elementLoads).toEqual([{ elementId: 'beam', wy: -0.02, wz: 0, wx: 0 }]);
+  });
+
+  it('buildVierendeelFrame maps a pier×chord grid to nodes, members, sections & loads', () => {
+    // 3 piers × 2 chords = one row of 2 openings. Pass lines out of order to
+    // exercise the internal sort.
+    const m = buildVierendeelFrame({
+      verticals: [
+        { x: 120, width: 8 },
+        { x: 0, width: 8 },
+        { x: 60, width: 6 },
+      ],
+      horizontals: [
+        { y: 96, depth: 10 },
+        { y: 0, depth: 10 },
+      ],
+      thickness: 8,
+      E: 4000,
+      lateralLoad: 10,
+      gravity: 0.02,
+    });
+    // nodes = nV·nH = 6; members = piers nV·(nH−1)=3 + chords nH·(nV−1)=4 = 7.
+    expect(m.nodes).toHaveLength(6);
+    expect(m.elements).toHaveLength(7);
+    expect(m.elements.filter((e) => e.id.startsWith('p'))).toHaveLength(3);
+    expect(m.elements.filter((e) => e.id.startsWith('c'))).toHaveLength(4);
+    // Interior pier (width 6, t 8): A = 48, I = 8·6³/12 = 144.
+    expect(m.sections.find((s) => s.id === 'pier1')).toMatchObject({ A: 48, I: 144 });
+    // Base supports on the lowest chord line, fixed.
+    expect(m.supports.map((s) => s.nodeId).sort()).toEqual(['n0_0', 'n1_0', 'n2_0']);
+    expect(m.supports.every((s) => s.rz)).toBe(true);
+    // Lateral load split equally over the 3 top nodes; gravity on the 4 chords.
+    expect(m.nodalLoads).toHaveLength(3);
+    expect(m.nodalLoads.every((l) => Math.abs((l.fx ?? 0) - 10 / 3) < 1e-9)).toBe(true);
+    expect(m.elementLoads).toHaveLength(4);
+    // Sorting: leftmost pier centerline x is 0.
+    expect(Math.min(...m.nodes.map((n) => n.x))).toBe(0);
+  });
+
+  it('buildVierendeelFrame rejects a degenerate grid (needs ≥2 piers and ≥2 chords)', () => {
+    expect(() =>
+      buildVierendeelFrame({
+        verticals: [{ x: 0, width: 8 }],
+        horizontals: [{ y: 0, depth: 10 }, { y: 96, depth: 10 }],
+        thickness: 8,
+        E: 4000,
+      }),
+    ).toThrow(/at least 2 piers/);
   });
 
   it('buildSimpleBeam discretizes into N elements with the right supports', () => {
