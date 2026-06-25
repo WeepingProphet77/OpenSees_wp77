@@ -21,6 +21,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Stat } from '@/components/ui/stat';
+import { UtilizationGauge } from '@/components/ui/utilizationGauge';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { SectionView } from '@/components/diagrams/SectionView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
@@ -528,30 +531,12 @@ export function MemberWorkspace() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">n (modular)</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.props.n.toFixed(3)}</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Composite Ic</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.props.I.toFixed(0)} in⁴</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Depth H</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.props.H.toFixed(1)} in</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Precast bottom</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.stresses.precastBottom.toFixed(3)} ksi</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Topping top</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.stresses.toppingTop.toFixed(3)} ksi</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Interface φVnh</div>
-                    <div className="font-mono font-semibold">{analysis.value.composite.interface.phiVnh.toFixed(1)} kip</div>
-                  </div>
+                  <Stat label="n (modular)" value={analysis.value.composite.props.n.toFixed(3)} />
+                  <Stat label="Composite Ic" value={`${analysis.value.composite.props.I.toFixed(0)} in⁴`} />
+                  <Stat label="Depth H" value={`${analysis.value.composite.props.H.toFixed(1)} in`} />
+                  <Stat label="Precast bottom" value={`${analysis.value.composite.stresses.precastBottom.toFixed(3)} ksi`} />
+                  <Stat label="Topping top" value={`${analysis.value.composite.stresses.toppingTop.toFixed(3)} ksi`} />
+                  <Stat label="Interface φVnh" value={`${analysis.value.composite.interface.phiVnh.toFixed(1)} kip`} />
                 </CardContent>
               </Card>
             )}
@@ -583,12 +568,16 @@ export function MemberWorkspace() {
                       crackingMoment={analysis.ok ? analysis.value.flexure.cracking.Mcr : undefined}
                     />
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {momentCurvature.status === 'loading'
-                        ? 'Computing moment–curvature…'
-                        : momentCurvature.status === 'idle'
-                          ? 'Add reinforcement to trace the moment–curvature response.'
-                          : 'Moment–curvature unavailable (FEA engine not loaded).'}
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                      {momentCurvature.status === 'loading' ? (
+                        <>
+                          <Spinner /> Computing moment–curvature…
+                        </>
+                      ) : momentCurvature.status === 'idle' ? (
+                        'Add reinforcement to trace the moment–curvature response.'
+                      ) : (
+                        'Moment–curvature unavailable (FEA engine not loaded).'
+                      )}
                     </p>
                   )}
                 </CardContent>
@@ -605,14 +594,21 @@ export function MemberWorkspace() {
                     </CardDescription>
                   </div>
                   {pmCheck && (
-                    <span
-                      className={
-                        'rounded-full px-2.5 py-1 text-xs font-semibold ' +
-                        (pmCheck.pass ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
-                      }
-                    >
-                      {pmCheck.pass ? 'P-M PASS' : 'P-M FAIL'} · φMn@Pu = {pmCheck.capM.toFixed(0)} kip-ft
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span
+                        className={
+                          'rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                          (pmCheck.pass ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
+                        }
+                      >
+                        {pmCheck.pass ? 'P-M PASS' : 'P-M FAIL'} · φMn@Pu = {pmCheck.capM.toFixed(0)} kip-ft
+                      </span>
+                      <UtilizationGauge
+                        className="w-40"
+                        utilization={pmCheck.capM > 0 ? pmCheck.Mu / pmCheck.capM : NaN}
+                        status={pmCheck.pass ? 'pass' : 'fail'}
+                      />
+                    </div>
                   )}
                 </CardHeader>
                 <CardContent className="flex justify-center">
@@ -630,28 +626,22 @@ export function MemberWorkspace() {
                       Two-point symmetric pickup (a = {handling.a.toFixed(1)} in); f = M_strip/S ≤ fr = 7.5λ√f′ci (§19.2.3 / PCI).
                     </CardDescription>
                   </div>
-                  <span
-                    className={
-                      'rounded-full px-2.5 py-1 text-xs font-semibold ' +
-                      (handling.check.status === 'pass' ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
-                    }
-                  >
-                    {handling.check.status === 'pass' ? 'HANDLING PASS' : 'HANDLING FAIL'}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span
+                      className={
+                        'rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                        (handling.check.status === 'pass' ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-destructive/15 text-destructive')
+                      }
+                    >
+                      {handling.check.status === 'pass' ? 'HANDLING PASS' : 'HANDLING FAIL'}
+                    </span>
+                    <UtilizationGauge className="w-40" utilization={handling.check.utilization} status={handling.check.status} />
+                  </div>
                 </CardHeader>
                 <CardContent className="grid grid-cols-3 gap-2 text-sm">
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Stripping M</div>
-                    <div className="font-mono font-semibold">{(handling.Mgov / 12).toFixed(1)} kip-ft</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">Tensile f</div>
-                    <div className="font-mono font-semibold">{handling.stress.toFixed(3)} ksi</div>
-                  </div>
-                  <div className="rounded-lg border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase text-muted-foreground">fr allow.</div>
-                    <div className="font-mono font-semibold">{handling.allowable.toFixed(3)} ksi</div>
-                  </div>
+                  <Stat label="Stripping M" value={`${(handling.Mgov / 12).toFixed(1)} kip-ft`} />
+                  <Stat label="Tensile f" value={`${handling.stress.toFixed(3)} ksi`} />
+                  <Stat label="fr allow." value={`${handling.allowable.toFixed(3)} ksi`} />
                 </CardContent>
               </Card>
             )}
@@ -670,7 +660,9 @@ export function MemberWorkspace() {
           </>
         ) : (
           <Card>
-            <CardContent className="py-8 text-sm text-destructive">Analysis error: {analysis.error}</CardContent>
+            <CardContent className="py-8 text-sm text-destructive" role="alert">
+              Analysis error: {analysis.error}
+            </CardContent>
           </Card>
         )}
       </div>
