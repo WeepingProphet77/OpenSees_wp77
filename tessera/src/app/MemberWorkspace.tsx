@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FileText, FileUp, Plus, Trash2 } from 'lucide-react';
 import { useProjectStore } from '@/store/projectStore';
 import {
@@ -19,7 +19,9 @@ import { PMDiagram } from '@/components/diagrams/PMDiagram';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { SectionView } from '@/components/diagrams/SectionView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
 import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
@@ -30,31 +32,50 @@ import { useMomentCurvature } from '@/fea/useMomentCurvature';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
 
-const selectClass =
-  'flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-
 function NumberField({
   label,
   value,
   onChange,
   step,
   suffix,
+  min,
+  positive,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   step?: string;
   suffix?: string;
+  /** Smallest valid value (inclusive). */
+  min?: number;
+  /** Require a strictly positive value (dimensions, strengths). */
+  positive?: boolean;
 }) {
+  const id = useId();
+  const errId = `${id}-err`;
+  const invalid =
+    !Number.isFinite(value) || (positive ? value <= 0 : false) || (min != null && value < min);
+  const message = invalid
+    ? positive
+      ? 'Must be greater than 0'
+      : min != null
+        ? `Must be ≥ ${min}`
+        : 'Enter a number'
+    : null;
   return (
     <div className="space-y-1">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <div className="relative">
         <Input
+          id={id}
           type="number"
+          inputMode="decimal"
           step={step ?? 'any'}
+          min={min ?? (positive ? 0 : undefined)}
           value={value}
-          className={suffix ? 'pr-10' : undefined}
+          aria-invalid={invalid || undefined}
+          aria-describedby={message ? errId : undefined}
+          className={cn(suffix && 'pr-10', invalid && 'border-destructive focus-visible:ring-destructive')}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
             onChange(Number.isFinite(v) ? v : 0);
@@ -66,6 +87,34 @@ function NumberField({
           </span>
         )}
       </div>
+      {message && (
+        <p id={errId} className="text-[11px] text-destructive">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Labeled native select with the label/id association wired up. */
+function SelectField({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>{label}</Label>
+      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        {children}
+      </Select>
     </div>
   );
 }
@@ -212,34 +261,24 @@ export function MemberWorkspace() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Member name</Label>
-                <Input value={design.name} onChange={(e) => set('name', e.target.value)} />
+                <Label htmlFor="member-name">Member name</Label>
+                <Input id="member-name" value={design.name} onChange={(e) => set('name', e.target.value)} />
               </div>
-              <div className="space-y-1">
-                <Label>Member type</Label>
-                <select className={selectClass} value={design.memberType} onChange={(e) => set('memberType', e.target.value as MemberDesignInput['memberType'])}>
-                  <option value="beam">Beam (flexure)</option>
-                  <option value="column">Column (P-M)</option>
-                  <option value="wall">Wall panel (P-M)</option>
-                </select>
-              </div>
+              <SelectField label="Member type" value={design.memberType} onChange={(v) => set('memberType', v as MemberDesignInput['memberType'])}>
+                <option value="beam">Beam (flexure)</option>
+                <option value="column">Column (P-M)</option>
+                <option value="wall">Wall panel (P-M)</option>
+              </SelectField>
             </div>
-            <div className="space-y-1">
-              <Label>Section type</Label>
-              <select
-                className={selectClass}
-                value={design.sectionType}
-                onChange={(e) => set('sectionType', e.target.value as MemberDesignInput['sectionType'])}
-              >
-                <option value="rectangular">Rectangular</option>
-                <option value="tbeam">T-beam</option>
-                <option value="doubletee">Double-tee</option>
-                <option value="hollowcore">Hollowcore</option>
-                <option value="sandwich">Sandwich wall</option>
-                <option value="custom">Custom (drawn)</option>
-                <option value="dxf">DXF import</option>
-              </select>
-            </div>
+            <SelectField label="Section type" value={design.sectionType} onChange={(v) => set('sectionType', v as MemberDesignInput['sectionType'])}>
+              <option value="rectangular">Rectangular</option>
+              <option value="tbeam">T-beam</option>
+              <option value="doubletee">Double-tee</option>
+              <option value="hollowcore">Hollowcore</option>
+              <option value="sandwich">Sandwich wall</option>
+              <option value="custom">Custom (drawn)</option>
+              <option value="dxf">DXF import</option>
+            </SelectField>
 
             <div className="space-y-2">
               <input
@@ -288,13 +327,13 @@ export function MemberWorkspace() {
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">
-                  {(isDT || isHC) && <NumberField label="Width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
+                  {(isDT || isHC) && <NumberField label="Width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" positive />}
                   {(design.sectionType === 'rectangular' || isT) && (
-                    <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" />
+                    <NumberField label={isT ? 'Web width bw' : 'Width b'} value={design.b} onChange={(v) => set('b', v)} suffix="in" positive />
                   )}
-                  <NumberField label="Depth h" value={design.h} onChange={(v) => set('h', v)} suffix="in" />
-                  {(isT || isDT) && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" />}
-                  {(isT || isDT) && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" />}
+                  <NumberField label="Depth h" value={design.h} onChange={(v) => set('h', v)} suffix="in" positive />
+                  {(isT || isDT) && <NumberField label="Flange width bf" value={design.bf} onChange={(v) => set('bf', v)} suffix="in" positive />}
+                  {(isT || isDT) && <NumberField label="Flange thk hf" value={design.hf} onChange={(v) => set('hf', v)} suffix="in" positive />}
                   {isDT && <NumberField label="# stems" value={design.numStems} onChange={(v) => set('numStems', Math.max(1, Math.round(v)))} />}
                   {isDT && <NumberField label="Stem width" value={design.stemWidth} onChange={(v) => set('stemWidth', v)} suffix="in" />}
                   {isHC && <NumberField label="# voids" value={design.numVoids} onChange={(v) => set('numVoids', Math.max(0, Math.round(v)))} />}
@@ -333,11 +372,11 @@ export function MemberWorkspace() {
             <CardTitle className="text-base">Materials, span &amp; loads</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
-            <NumberField label="f′c" value={design.fc} onChange={(v) => set('fc', v)} suffix="ksi" />
-            <NumberField label="f′ci (transfer)" value={design.fci} onChange={(v) => set('fci', v)} suffix="ksi" />
-            <NumberField label="Unit weight wc" value={design.wc} onChange={(v) => set('wc', v)} suffix="pcf" />
-            <NumberField label="λ (lightweight)" value={design.lambda} onChange={(v) => set('lambda', v)} />
-            <NumberField label="Span L" value={design.L} onChange={(v) => set('L', v)} suffix="ft" />
+            <NumberField label="f′c" value={design.fc} onChange={(v) => set('fc', v)} suffix="ksi" positive />
+            <NumberField label="f′ci (transfer)" value={design.fci} onChange={(v) => set('fci', v)} suffix="ksi" positive />
+            <NumberField label="Unit weight wc" value={design.wc} onChange={(v) => set('wc', v)} suffix="pcf" positive />
+            <NumberField label="λ (lightweight)" value={design.lambda} onChange={(v) => set('lambda', v)} positive />
+            <NumberField label="Span L" value={design.L} onChange={(v) => set('L', v)} suffix="ft" positive />
             <div />
             <NumberField label="Superimposed dead" value={design.superDead} onChange={(v) => set('superDead', v)} suffix="klf" />
             <NumberField label="Live load" value={design.live} onChange={(v) => set('live', v)} suffix="klf" />
@@ -355,31 +394,29 @@ export function MemberWorkspace() {
             {design.layers.map((r, i) => (
               <div key={r.id} className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <select
-                    className={selectClass + ' max-w-[60%]'}
+                  <Select
+                    className="max-w-[60%]"
+                    aria-label={`Layer ${i + 1} reinforcement type`}
                     value={r.kind}
                     onChange={(e) => updateLayer(i, { kind: e.target.value as ReinfRow['kind'] })}
                   >
                     <option value="mild">Mild bar</option>
                     <option value="strand">Strand</option>
-                  </select>
-                  <Button size="icon" variant="ghost" aria-label="Remove layer" onClick={() => removeLayer(i)}>
+                  </Select>
+                  <Button size="icon" variant="ghost" aria-label={`Remove layer ${i + 1}`} onClick={() => removeLayer(i)}>
                     <Trash2 />
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label>Grade</Label>
-                    <select className={selectClass} value={r.gradeId} onChange={(e) => updateLayer(i, { gradeId: e.target.value })}>
-                      {gradeOptions.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <NumberField label="Area" value={r.area} onChange={(v) => updateLayer(i, { area: v })} suffix="in²" />
-                  <NumberField label="Depth d" value={r.depth} onChange={(v) => updateLayer(i, { depth: v })} suffix="in" />
+                  <SelectField label="Grade" value={r.gradeId} onChange={(v) => updateLayer(i, { gradeId: v })}>
+                    {gradeOptions.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <NumberField label="Area" value={r.area} onChange={(v) => updateLayer(i, { area: v })} suffix="in²" positive />
+                  <NumberField label="Depth d" value={r.depth} onChange={(v) => updateLayer(i, { depth: v })} suffix="in" positive />
                   {r.kind === 'strand' && <NumberField label="fse" value={r.fse} onChange={(v) => updateLayer(i, { fse: v })} suffix="ksi" />}
                   {design.biaxial && <NumberField label="x position" value={r.x ?? centerX} onChange={(v) => updateLayer(i, { x: v })} suffix="in" />}
                 </div>
@@ -397,34 +434,25 @@ export function MemberWorkspace() {
             {isPM && (
               <>
                 <NumberField label="Axial Pu (factored)" value={design.axialPu} onChange={(v) => set('axialPu', v)} suffix="kip" />
-                <div className="space-y-1">
-                  <Label>Confinement</Label>
-                  <select className={selectClass} value={design.tie} onChange={(e) => set('tie', e.target.value as MemberDesignInput['tie'])}>
-                    <option value="tied">Tied</option>
-                    <option value="spiral">Spiral</option>
-                  </select>
-                </div>
+                <SelectField label="Confinement" value={design.tie} onChange={(v) => set('tie', v as MemberDesignInput['tie'])}>
+                  <option value="tied">Tied</option>
+                  <option value="spiral">Spiral</option>
+                </SelectField>
               </>
             )}
             {isWall && (
               <NumberField label="Handling impact ×" value={design.handlingImpact} onChange={(v) => set('handlingImpact', v)} />
             )}
-            <div className="space-y-1">
-              <Label>Service class</Label>
-              <select className={selectClass} value={design.serviceClass} onChange={(e) => set('serviceClass', e.target.value as 'U' | 'T')}>
-                <option value="U">Class U (uncracked)</option>
-                <option value="T">Class T (transition)</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Strand type</Label>
-              <select className={selectClass} value={design.strandType} onChange={(e) => set('strandType', e.target.value as MemberDesignInput['strandType'])}>
-                <option value="270LR">270 low-relax</option>
-                <option value="250LR">250 low-relax</option>
-                <option value="270SR">270 stress-rel</option>
-                <option value="250SR">250 stress-rel</option>
-              </select>
-            </div>
+            <SelectField label="Service class" value={design.serviceClass} onChange={(v) => set('serviceClass', v as 'U' | 'T')}>
+              <option value="U">Class U (uncracked)</option>
+              <option value="T">Class T (transition)</option>
+            </SelectField>
+            <SelectField label="Strand type" value={design.strandType} onChange={(v) => set('strandType', v as MemberDesignInput['strandType'])}>
+              <option value="270LR">270 low-relax</option>
+              <option value="250LR">250 low-relax</option>
+              <option value="270SR">270 stress-rel</option>
+              <option value="250SR">250 stress-rel</option>
+            </SelectField>
             <NumberField label="Stirrup Av" value={design.Av} onChange={(v) => set('Av', v)} suffix="in²" />
             <NumberField label="Stirrup spacing s" value={design.stirrupSpacing} onChange={(v) => set('stirrupSpacing', v)} suffix="in" />
             <NumberField label="fyt" value={design.fyt} onChange={(v) => set('fyt', v)} suffix="ksi" />
