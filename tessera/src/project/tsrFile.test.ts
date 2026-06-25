@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { serializeProject, parseProject, suggestedFilename } from './tsrFile';
 import { createEmptyProject, CURRENT_SCHEMA_VERSION } from '../schema/project';
+import { defaultMemberDesign } from '../design/memberDesign';
 
 const FIXED = new Date('2026-06-21T12:00:00.000Z');
 
@@ -90,6 +91,38 @@ describe('parseProject — schema migration', () => {
       expect(result.project.settings.code).toBe('ACI318-19');
       expect(result.project.materials).toEqual({ concrete: [], steel: [] });
       expect(result.project.meta.name).toBe('Legacy Beam');
+    }
+  });
+
+  it('migrates a v1 single `design` blob into the v2 memberDesigns array', () => {
+    const v1 = {
+      format: 'tessera-project',
+      schemaVersion: 1,
+      appVersion: '0.1.0',
+      meta: {
+        name: 'One Beam',
+        project: '',
+        engineer: '',
+        createdISO: FIXED.toISOString(),
+        modifiedISO: FIXED.toISOString(),
+      },
+      settings: { units: 'US', code: 'ACI318-19' },
+      materials: { concrete: [], steel: [] },
+      sections: [],
+      members: [],
+      loadCases: [],
+      loadCombos: [],
+      design: { ...defaultMemberDesign(), name: 'Roof Beam', h: 28 },
+    };
+    const result = parseProject(JSON.stringify(v1));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+      expect('design' in result.project).toBe(false);
+      expect(result.project.memberDesigns).toHaveLength(1);
+      expect(result.project.memberDesigns[0].design.name).toBe('Roof Beam');
+      expect(result.project.memberDesigns[0].design.h).toBe(28);
+      expect(result.project.activeMemberId).toBe(result.project.memberDesigns[0].id);
     }
   });
 });

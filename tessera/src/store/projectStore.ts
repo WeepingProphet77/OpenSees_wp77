@@ -6,8 +6,8 @@
  * actions operate through this store.
  */
 import { create } from 'zustand';
-import { createEmptyProject, type Project } from '../schema/project';
-import { defaultMemberDesign, type MemberDesignInput } from '../design/memberDesign';
+import { createEmptyProject, createMemberEntry, type Project } from '../schema/project';
+import { type MemberDesignInput } from '../design/memberDesign';
 import { APP_VERSION } from '../appInfo';
 
 export interface ProjectState {
@@ -22,8 +22,14 @@ export interface ProjectState {
   clearProject: () => void;
   /** Patch project metadata (marks the store dirty). */
   setMeta: (patch: Partial<Project['meta']>) => void;
-  /** Patch the current member-design model (marks the store dirty). */
+  /** Patch the active member's design model (marks the store dirty). */
   setDesign: (patch: Partial<MemberDesignInput>) => void;
+  /** Add a new member (default design), make it active; returns its id. */
+  addMember: () => string;
+  /** Remove a member; keeps at least one and reselects if the active one went. */
+  removeMember: (id: string) => void;
+  /** Make a member the active one shown in the workspace. */
+  selectMember: (id: string) => void;
   /** Replace the project and mark it dirty (in-app edits). */
   updateProject: (project: Project) => void;
   /** Clear the dirty flag after a successful save. */
@@ -48,10 +54,37 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => ({
       project: {
         ...s.project,
-        design: { ...(s.project.design ?? defaultMemberDesign()), ...patch },
+        memberDesigns: s.project.memberDesigns.map((m) =>
+          m.id === s.project.activeMemberId ? { ...m, design: { ...m.design, ...patch } } : m,
+        ),
       },
       dirty: true,
     })),
+
+  addMember: () => {
+    const member = createMemberEntry();
+    set((s) => ({
+      project: {
+        ...s.project,
+        memberDesigns: [...s.project.memberDesigns, member],
+        activeMemberId: member.id,
+      },
+      dirty: true,
+    }));
+    return member.id;
+  },
+
+  removeMember: (id) =>
+    set((s) => {
+      if (s.project.memberDesigns.length <= 1) return s; // always keep one member
+      const memberDesigns = s.project.memberDesigns.filter((m) => m.id !== id);
+      const activeMemberId =
+        s.project.activeMemberId === id ? memberDesigns[0].id : s.project.activeMemberId;
+      return { project: { ...s.project, memberDesigns, activeMemberId }, dirty: true };
+    }),
+
+  selectMember: (id) =>
+    set((s) => ({ project: { ...s.project, activeMemberId: id }, dirty: true })),
 
   updateProject: (project) => set({ project, dirty: true }),
 
