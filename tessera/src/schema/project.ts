@@ -15,7 +15,7 @@ import { MemberSchema, SectionSchema } from './domain';
 import { MemberDesignSchema, defaultMemberDesign } from '../design/memberDesign';
 
 /** Current schema version. Bumped whenever the persisted shape changes. */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /** Discriminating literal at the top of every Tessera project file. */
 export const PROJECT_FORMAT = 'tessera-project';
@@ -70,6 +70,18 @@ const WithId = z.object({ id: z.string() }).passthrough();
 export const LoadCaseSchema = WithId;
 export const LoadComboSchema = WithId;
 
+/** One member in the project: a stable id + its flat design model. */
+export const MemberDesignEntrySchema = z.object({
+  id: z.string(),
+  design: MemberDesignSchema,
+});
+export type MemberDesignEntry = z.infer<typeof MemberDesignEntrySchema>;
+
+/** Build a fresh member entry (new id + a default or supplied design). */
+export function createMemberEntry(design = defaultMemberDesign()): MemberDesignEntry {
+  return { id: crypto.randomUUID(), design };
+}
+
 export const ProjectSchema = z.object({
   format: z.literal(PROJECT_FORMAT),
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
@@ -84,9 +96,13 @@ export const ProjectSchema = z.object({
   members: z.array(MemberSchema),
   loadCases: z.array(LoadCaseSchema),
   loadCombos: z.array(LoadComboSchema),
-  // Phase 1 single-member design model (UI/persistence vehicle; see
-  // design/memberDesign.ts). Reconciled with members[] in Phase 2.
-  design: MemberDesignSchema.optional(),
+  // Flat per-member design model — one entry per member in the project (UI /
+  // persistence vehicle; see design/memberDesign.ts). This is the multi-member
+  // store; the richer domain members[] above stays a placeholder until the two
+  // are reconciled (a later increment).
+  memberDesigns: z.array(MemberDesignEntrySchema).default([]),
+  /** Id of the member currently shown in the workspace. */
+  activeMemberId: z.string().optional(),
   // Optional, regenerable analysis/design cache.
   results: z.unknown().optional(),
 });
@@ -102,6 +118,7 @@ export type Steel = z.infer<typeof SteelSchema>;
  */
 export function createEmptyProject(appVersion: string, now: Date = new Date()): Project {
   const iso = now.toISOString();
+  const member = createMemberEntry();
   return {
     format: PROJECT_FORMAT,
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -119,6 +136,7 @@ export function createEmptyProject(appVersion: string, now: Date = new Date()): 
     members: [],
     loadCases: [],
     loadCombos: [],
-    design: defaultMemberDesign(),
+    memberDesigns: [member],
+    activeMemberId: member.id,
   };
 }

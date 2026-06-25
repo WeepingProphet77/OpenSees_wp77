@@ -8,6 +8,7 @@
  * loadable as the domain model grows.
  */
 import { CURRENT_SCHEMA_VERSION } from './project';
+import { defaultMemberDesign } from '../design/memberDesign';
 
 export type RawDoc = Record<string, unknown>;
 export type Migration = (data: RawDoc) => RawDoc;
@@ -19,6 +20,10 @@ const asObject = (v: unknown): RawDoc => (v && typeof v === 'object' ? (v as Raw
  *
  * `0 → 1`: pre-release internal files had no explicit design `code` and may have
  * been missing the `materials` container. Fill the v1 defaults.
+ *
+ * `1 → 2`: the single flat `design` blob became a `memberDesigns` array (one
+ * entry per member) with an `activeMemberId`. Wrap the existing design (or a
+ * default, if absent) into the first member and select it.
  */
 export const migrations: Record<number, Migration> = {
   0: (data) => ({
@@ -30,6 +35,16 @@ export const migrations: Record<number, Migration> = {
       ? asObject(data.materials)
       : { concrete: [], steel: [] },
   }),
+  1: (data) => {
+    const { design, ...rest } = data;
+    const id = crypto.randomUUID();
+    return {
+      ...rest,
+      schemaVersion: 2,
+      memberDesigns: [{ id, design: design ?? defaultMemberDesign() }],
+      activeMemberId: id,
+    };
+  },
 };
 
 /**
