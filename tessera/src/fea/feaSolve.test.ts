@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDirectFeaEngine, type FeaEngine, type FeaModuleFactory } from './FeaEngine';
-import { buildPortalFrame, buildSimpleBeam } from './feaBuilders';
+import { buildPortalFrame, buildSimpleBeam, buildVierendeelFrame } from './feaBuilders';
 import { normalizeFeaModel, normalizeMomentCurvatureSpec } from './feaModel';
 import { discretizeConcreteFibers } from '@/engine/beamCalculations';
 import { assembleBeamDiagram, computeMemberDiagrams, diagramExtreme, interpolateDiagram } from './feaDiagrams';
@@ -135,6 +135,48 @@ describe.skipIf(ENGINES.length === 0)('WASM elastic 2D frame solve (closed-form 
         const tr = r.nodalDisplacements.find((d) => d.nodeId === 'tr')!;
         expect(tl.dx).toBeGreaterThan(0);
         expect(tr.dx).toBeGreaterThan(0);
+        engine.dispose();
+      });
+
+      it('Vierendeel panel (3×3 grid) under lateral + gravity: converges and balances loads', async () => {
+        const engine = makeEngine(eng.base);
+        const lateral = 8;
+        const gravity = 0.02; // kip/in on each chord member
+        const model = buildVierendeelFrame({
+          verticals: [
+            { x: 0, width: 8 },
+            { x: 60, width: 6 },
+            { x: 120, width: 8 },
+          ],
+          horizontals: [
+            { y: 0, depth: 12 },
+            { y: 96, depth: 10 },
+            { y: 192, depth: 10 },
+          ],
+          thickness: 8,
+          E: 4030,
+          lateralLoad: lateral,
+          gravity,
+        });
+        const r = await engine.solve(model);
+        expect(r.converged).toBe(true);
+
+        // Total applied gravity = Σ wy·L over loaded (chord) members.
+        const totalGravity = model.elementLoads!.reduce((a, el) => {
+          const e = model.elements.find((x) => x.id === el.elementId)!;
+          const ni = model.nodes.find((n) => n.id === e.nodeI)!;
+          const nj = model.nodes.find((n) => n.id === e.nodeJ)!;
+          return a + Math.abs(el.wy ?? 0) * Math.hypot(nj.x - ni.x, nj.y - ni.y);
+        }, 0);
+
+        const sumFx = r.reactions.reduce((a, x) => a + x.fx, 0);
+        const sumFy = r.reactions.reduce((a, x) => a + x.fy, 0);
+        expect(near(sumFx, -lateral)).toBe(true); // ΣFx + applied lateral = 0
+        expect(near(sumFy, totalGravity, 1e-4, 1e-4)).toBe(true); // reactions carry the gravity
+
+        // Lateral load drives the panel sideways: top nodes displace in +x.
+        const topDx = r.nodalDisplacements.filter((d) => d.nodeId.endsWith('_2')).map((d) => d.dx);
+        expect(topDx.every((dx) => dx > 0)).toBe(true);
         engine.dispose();
       });
 
