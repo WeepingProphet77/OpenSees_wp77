@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { ForceDiagram } from '@/components/diagrams/ForceDiagram';
 import { StressDiagram } from '@/components/diagrams/StressDiagram';
 import { useMemberDiagrams } from '@/fea/useMemberDiagrams';
@@ -113,9 +114,15 @@ export function MemberForceDiagrams({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {status === 'loading' && <p className="text-sm text-muted-foreground">Solving…</p>}
+        {status === 'loading' && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Spinner /> Solving…
+          </p>
+        )}
         {status === 'unavailable' && (
-          <p className="text-sm text-muted-foreground">FEA engine unavailable — diagrams skipped.</p>
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            FEA engine unavailable — diagrams skipped.
+          </p>
         )}
         {status === 'ready' && diagram && (
           <div className="space-y-4">

@@ -1,18 +1,9 @@
 import type { MemberAnalysis } from '@/engine/analyzeMember';
 import { formatQuantity } from '@/units/units';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Stat } from '@/components/ui/stat';
 import { StrainDiagram } from '@/components/diagrams/StrainDiagram';
 import { ChecksTable } from './ChecksTable';
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border bg-card px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="font-mono text-lg font-semibold tabular-nums">{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
-    </div>
-  );
-}
 
 export function ResultsPanel({ analysis }: { analysis: MemberAnalysis }) {
   const { flexure, demands, governing, losses, camber, prestress } = analysis;
