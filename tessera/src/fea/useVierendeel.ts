@@ -33,8 +33,10 @@ export interface VierendeelInput {
   lambda?: number;
   /** Total in-plane lateral force at the top (kip). */
   lateralLoad?: number;
-  /** Uniform gravity on chords (kip/in, positive magnitude). */
+  /** Superimposed uniform gravity on chords (kip/in, positive magnitude). */
   gravity?: number;
+  /** Concrete unit weight (pcf) for self-weight (incl. the rigid joint areas). */
+  unitWeight?: number;
   base?: 'fixed' | 'pinned';
 }
 
@@ -78,6 +80,8 @@ export function useVierendeel(input: VierendeelInput | null): VierendeelState {
         E: input.E,
         lateralLoad: input.lateralLoad,
         gravity: input.gravity,
+        unitWeight: input.unitWeight,
+        rigidEndZones: true,
         base: input.base,
       });
     } catch (e) {

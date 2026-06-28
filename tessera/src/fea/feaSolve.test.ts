@@ -138,48 +138,6 @@ describe.skipIf(ENGINES.length === 0)('WASM elastic 2D frame solve (closed-form 
         engine.dispose();
       });
 
-      it('Vierendeel panel (3×3 grid) under lateral + gravity: converges and balances loads', async () => {
-        const engine = makeEngine(eng.base);
-        const lateral = 8;
-        const gravity = 0.02; // kip/in on each chord member
-        const model = buildVierendeelFrame({
-          verticals: [
-            { x: 0, width: 8 },
-            { x: 60, width: 6 },
-            { x: 120, width: 8 },
-          ],
-          horizontals: [
-            { y: 0, depth: 12 },
-            { y: 96, depth: 10 },
-            { y: 192, depth: 10 },
-          ],
-          thickness: 8,
-          E: 4030,
-          lateralLoad: lateral,
-          gravity,
-        });
-        const r = await engine.solve(model);
-        expect(r.converged).toBe(true);
-
-        // Total applied gravity = Σ wy·L over loaded (chord) members.
-        const totalGravity = model.elementLoads!.reduce((a, el) => {
-          const e = model.elements.find((x) => x.id === el.elementId)!;
-          const ni = model.nodes.find((n) => n.id === e.nodeI)!;
-          const nj = model.nodes.find((n) => n.id === e.nodeJ)!;
-          return a + Math.abs(el.wy ?? 0) * Math.hypot(nj.x - ni.x, nj.y - ni.y);
-        }, 0);
-
-        const sumFx = r.reactions.reduce((a, x) => a + x.fx, 0);
-        const sumFy = r.reactions.reduce((a, x) => a + x.fy, 0);
-        expect(near(sumFx, -lateral)).toBe(true); // ΣFx + applied lateral = 0
-        expect(near(sumFy, totalGravity, 1e-4, 1e-4)).toBe(true); // reactions carry the gravity
-
-        // Lateral load drives the panel sideways: top nodes displace in +x.
-        const topDx = r.nodalDisplacements.filter((d) => d.nodeId.endsWith('_2')).map((d) => d.dx);
-        expect(topDx.every((dx) => dx > 0)).toBe(true);
-        engine.dispose();
-      });
-
       it('reports non-convergence for an unstable (under-restrained) model rather than throwing', async () => {
         const engine = makeEngine(eng.base);
         const r = await engine.solve({
@@ -198,6 +156,60 @@ describe.skipIf(ENGINES.length === 0)('WASM elastic 2D frame solve (closed-form 
       });
     });
   }
+});
+
+// Vierendeel panels exercise axial element loads (vertical-pier self-weight) and
+// rigid end-zone stubs; the Eigen oracle models only transverse element loads, so
+// this runs against the production OpenSees engine (what the app uses).
+describe.skipIf(!isBuilt('feaEngine'))('WASM Vierendeel frame (OpenSees)', () => {
+  it('3×3 panel, rigid end zones, lateral + gravity + self-weight: balances loads', async () => {
+    const engine = makeEngine('feaEngine');
+    const lateral = 8;
+    const gravity = 0.02; // superimposed, kip/in on chord clear spans
+    const model = buildVierendeelFrame({
+      verticals: [
+        { x: 0, width: 8 },
+        { x: 60, width: 6 },
+        { x: 120, width: 8 },
+      ],
+      horizontals: [
+        { y: 0, depth: 12 },
+        { y: 96, depth: 10 },
+        { y: 192, depth: 10 },
+      ],
+      thickness: 8,
+      E: 4030,
+      lateralLoad: lateral,
+      gravity,
+      unitWeight: 150, // self-weight, incl. the rigid joint overlaps (nodal)
+    });
+    expect(model.elements.some((e) => e.id.startsWith('rl_'))).toBe(true); // rigid stubs present
+
+    const r = await engine.solve(model);
+    expect(r.converged).toBe(true);
+
+    // Total applied gravity = Σ (axial|transverse)·L over members + Σ joint nodal weights.
+    const xy = new Map(model.nodes.map((n) => [n.id, n]));
+    let totalGravity = model.elementLoads!.reduce((a, el) => {
+      const e = model.elements.find((x) => x.id === el.elementId)!;
+      const ni = xy.get(e.nodeI)!;
+      const nj = xy.get(e.nodeJ)!;
+      const wmag = Math.abs(el.wx ?? 0) + Math.abs(el.wy ?? 0);
+      return a + wmag * Math.hypot(nj.x - ni.x, nj.y - ni.y);
+    }, 0);
+    totalGravity += model.nodalLoads!.reduce((a, nl) => a + Math.max(0, -(nl.fy ?? 0)), 0);
+
+    const sumFx = r.reactions.reduce((a, x) => a + x.fx, 0);
+    const sumFy = r.reactions.reduce((a, x) => a + x.fy, 0);
+    expect(near(sumFx, -lateral)).toBe(true); // ΣFx + applied lateral = 0
+    expect(near(sumFy, totalGravity, 1e-4, 1e-4)).toBe(true); // reactions carry element + joint self-weight
+
+    // Lateral load drives the panel sideways: top joints displace in +x.
+    const topDx = r.nodalDisplacements.filter((d) => ['n0_2', 'n1_2', 'n2_2'].includes(d.nodeId)).map((d) => d.dx);
+    expect(topDx.length).toBe(3);
+    expect(topDx.every((dx) => dx > 0)).toBe(true);
+    engine.dispose();
+  });
 });
 
 // Cross-engine parity: the production OpenSees engine and the Eigen oracle must

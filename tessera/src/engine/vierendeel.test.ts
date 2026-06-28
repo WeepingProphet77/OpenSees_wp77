@@ -45,6 +45,7 @@ describe('vierendeelMemberResults', () => {
     ],
     thickness: 8,
     E: 4030,
+    rigidEndZones: false, // centerline model → one element per member
   });
 
   // Synthetic solve: all members unloaded except chord c0_1 (depth 10, t 8).
@@ -99,5 +100,27 @@ describe('vierendeelMemberResults', () => {
     const { maxUtilization, governing } = vierendeelSummary(results);
     expect(governing?.elementId).toBe('c0_1');
     expect(maxUtilization).toBeCloseTo(35 / 70.71, 3);
+  });
+
+  it('skips rigid end-zone stubs — only flexible p/c members are checked', () => {
+    const rigidModel = buildVierendeelFrame({
+      verticals: [
+        { x: 0, width: 8 },
+        { x: 60, width: 6 },
+        { x: 120, width: 8 },
+      ],
+      horizontals: [
+        { y: 0, depth: 12 },
+        { y: 96, depth: 10 },
+      ],
+      thickness: 8,
+      E: 4030,
+    });
+    expect(rigidModel.elements.some((e) => e.id.startsWith('rl_'))).toBe(true);
+    const forces = rigidModel.elements.map((e) => ({ elementId: e.id, iN: 0, iV: 0, iM: 0, jN: 0, jV: 0, jM: 0 }));
+    const rigidResult = { converged: true, solver: 't', message: '', residual: 0, nodalDisplacements: [], reactions: [], elementForces: forces } as unknown as FeaResult;
+    const results = vierendeelMemberResults(rigidModel, rigidResult, { fc: 5 });
+    expect(results).toHaveLength(7); // 3 piers + 4 chords, no stubs
+    expect(results.every((r) => /^[pc]\d+_\d+$/.test(r.elementId))).toBe(true);
   });
 });
