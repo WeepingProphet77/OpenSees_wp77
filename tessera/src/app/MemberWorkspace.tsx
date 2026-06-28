@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FileText, FileUp, Plus, Trash2 } from 'lucide-react';
 import { useProjectStore } from '@/store/projectStore';
 import {
@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Stat } from '@/components/ui/stat';
 import { UtilizationGauge } from '@/components/ui/utilizationGauge';
 import { Spinner } from '@/components/ui/spinner';
+import { NumberField, SelectField } from '@/components/ui/field';
 import { cn } from '@/lib/utils';
 import { SectionView } from '@/components/diagrams/SectionView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
@@ -34,93 +35,6 @@ import { buildMomentCurvatureSpec } from '@/fea/momentCurvatureSpec';
 import { useMomentCurvature } from '@/fea/useMomentCurvature';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  step,
-  suffix,
-  min,
-  positive,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  step?: string;
-  suffix?: string;
-  /** Smallest valid value (inclusive). */
-  min?: number;
-  /** Require a strictly positive value (dimensions, strengths). */
-  positive?: boolean;
-}) {
-  const id = useId();
-  const errId = `${id}-err`;
-  const invalid =
-    !Number.isFinite(value) || (positive ? value <= 0 : false) || (min != null && value < min);
-  const message = invalid
-    ? positive
-      ? 'Must be greater than 0'
-      : min != null
-        ? `Must be ≥ ${min}`
-        : 'Enter a number'
-    : null;
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="relative">
-        <Input
-          id={id}
-          type="number"
-          inputMode="decimal"
-          step={step ?? 'any'}
-          min={min ?? (positive ? 0 : undefined)}
-          value={value}
-          aria-invalid={invalid || undefined}
-          aria-describedby={message ? errId : undefined}
-          className={cn(suffix && 'pr-10', invalid && 'border-destructive focus-visible:ring-destructive')}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            onChange(Number.isFinite(v) ? v : 0);
-          }}
-        />
-        {suffix && (
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            {suffix}
-          </span>
-        )}
-      </div>
-      {message && (
-        <p id={errId} className="text-[11px] text-destructive">
-          {message}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** Labeled native select with the label/id association wired up. */
-function SelectField({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  children: ReactNode;
-}) {
-  const id = useId();
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id}>{label}</Label>
-      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        {children}
-      </Select>
-    </div>
-  );
-}
 
 export function MemberWorkspace() {
   const memberDesigns = useProjectStore((s) => s.project.memberDesigns);

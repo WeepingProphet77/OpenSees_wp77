@@ -6,6 +6,7 @@ import { useProjectStore } from '@/store/projectStore';
 import { parseProject, pickAndReadTsr, saveProjectToFile } from '@/project/tsrFile';
 import { APP_NAME, APP_VERSION } from '@/appInfo';
 import { MemberWorkspace } from './MemberWorkspace';
+import { VierendeelWorkspace } from './VierendeelWorkspace';
 
 /**
  * Tessera application shell: top bar with project name + .tsr controls, and the
@@ -20,6 +21,7 @@ function App() {
   const markSaved = useProjectStore((s) => s.markSaved);
 
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [view, setView] = useState<'member' | 'vierendeel'>('member');
 
   const handleSave = async () => {
     try {
@@ -109,7 +111,27 @@ function App() {
       </header>
 
       <main className="mx-auto max-w-[1400px] px-6 py-6">
-        <MemberWorkspace />
+        <div className="mb-5 inline-flex overflow-hidden rounded-md border" role="tablist" aria-label="Workspace">
+          {([
+            ['member', 'Member design'],
+            ['vierendeel', 'Vierendeel panel'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={view === id}
+              onClick={() => setView(id)}
+              className={
+                'px-3.5 py-1.5 text-sm transition-colors ' +
+                (view === id ? 'bg-primary text-primary-foreground' : 'bg-card hover:bg-muted')
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {view === 'member' ? <MemberWorkspace /> : <VierendeelWorkspace />}
       </main>
     </div>
   );
