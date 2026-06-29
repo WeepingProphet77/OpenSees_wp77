@@ -112,6 +112,8 @@ export function vierendeelMemberResults(
 
   const out: VierendeelMemberResult[] = [];
   for (const el of model.elements) {
+    // Only the flexible pier/chord members are design members; skip rigid stubs (rl_…).
+    if (!/^[pc]\d+_\d+$/.test(el.id)) continue;
     const sec = sectionById.get(el.sectionId);
     const f = forceById.get(el.id);
     if (!sec || !f) continue;

@@ -17,6 +17,7 @@ interface PanelState {
   chordDepth: number;
   fc: number;
   lambda: number;
+  unitWeight: number;
   lateralLoad: number;
   gravity: number;
   base: 'fixed' | 'pinned';
@@ -32,6 +33,7 @@ const DEFAULT_PANEL: PanelState = {
   chordDepth: 24,
   fc: 5,
   lambda: 1,
+  unitWeight: 150,
   lateralLoad: 15,
   gravity: 0.02,
   base: 'fixed',
@@ -64,6 +66,7 @@ export function VierendeelWorkspace() {
     E,
     fc: panel.fc,
     lambda: panel.lambda,
+    unitWeight: panel.unitWeight,
     lateralLoad: panel.lateralLoad,
     gravity: panel.gravity,
     base: panel.base,
@@ -111,7 +114,8 @@ export function VierendeelWorkspace() {
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
             <NumberField label="Lateral force (top)" value={panel.lateralLoad} onChange={(x) => set('lateralLoad', x)} suffix="kip" />
-            <NumberField label="Gravity on chords" value={panel.gravity} onChange={(x) => set('gravity', x)} suffix="kip/in" />
+            <NumberField label="Superimposed gravity" value={panel.gravity} onChange={(x) => set('gravity', x)} suffix="kip/in" />
+            <NumberField label="Unit weight" value={panel.unitWeight} onChange={(x) => set('unitWeight', x)} suffix="pcf" />
           </CardContent>
         </Card>
       </div>
@@ -146,9 +150,9 @@ export function VierendeelWorkspace() {
                 )}
               </CardHeader>
               <CardContent className="space-y-3">
-                {v.lines && v.model ? (
+                {v.lines ? (
                   <div className="flex justify-center">
-                    <VierendeelDiagram lines={v.lines} model={v.model} members={v.members} />
+                    <VierendeelDiagram lines={v.lines} members={v.members} />
                   </div>
                 ) : null}
                 {v.status !== 'ready' && (

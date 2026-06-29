@@ -80,8 +80,16 @@ export interface VierendeelFrameParams {
   E: number;
   /** Total in-plane lateral force at the top level (kip), split equally across top nodes. */
   lateralLoad?: number;
-  /** Uniform gravity on every chord member, local −y (kip/in, positive magnitude). */
+  /** Superimposed uniform gravity on chord clear spans, local −y (kip/in, positive). */
   gravity?: number;
+  /** Concrete unit weight (pcf) for self-weight; 0 / omitted = ignore self-weight. */
+  unitWeight?: number;
+  /**
+   * Model the finite joint size with rigid end zones (default true): each member's
+   * clear span is the centerline span less the half-widths of the perpendicular
+   * strips it frames into, with rigid stubs bridging joint center → member face.
+   */
+  rigidEndZones?: boolean;
   /** Base fixity at the lowest chord line: 'fixed' (default) or 'pinned'. */
   base?: 'fixed' | 'pinned';
 }
@@ -90,14 +98,22 @@ export interface VierendeelFrameParams {
  * A Vierendeel wall panel (a panel pierced by a grid of openings) mapped to its
  * equivalent rigid-jointed frame: the solid strips between/around the openings
  * become piers (verticals) and chords (horizontals), joined rigidly with no
- * diagonals. Nodes sit at every pier×chord centerline intersection; each member
- * spans between adjacent nodes with the section of its strip
- * (A = strip·t, I = t·strip³/12 for in-plane bending).
+ * diagonals. Joint nodes sit at every pier×chord centerline intersection.
  *
- * This is the centerline ("equivalent frame") model; finite joint size (rigid
- * end zones) is a planned refinement. The result feeds the same 2D
- * `FeaEngine.solve` as any other frame, so member end forces flow straight into
- * the per-member sectional checks.
+ * With `rigidEndZones` (default), each flexible member spans only the clear
+ * distance between the faces of the strips it frames into; rigid stubs connect
+ * the joint centers to those faces, so the joint overlap behaves as a rigid
+ * block and the clear-span flexibility is accurate. Member sections are the
+ * strip (A = strip·t, I = t·strip³/12 for in-plane bending).
+ *
+ * Self-weight (when `unitWeight` is given) is applied exactly: each flexible
+ * member carries its strip self-weight over its clear span, and every joint
+ * overlap (pier∩chord = w·d·t) is applied as a nodal weight — so the rigid joint
+ * areas are included and the total equals the solid panel weight.
+ *
+ * The result feeds the same 2D `FeaEngine.solve` as any other frame; the
+ * flexible members keep the `p…`/`c…` ids so member end forces flow straight into
+ * the per-member sectional checks (rigid stubs use `rl_…` ids).
  */
 export function buildVierendeelFrame(p: VierendeelFrameParams): FeaModelInput {
   const verticals = [...p.verticals].sort((a, b) => a.x - b.x);
@@ -109,64 +125,113 @@ export function buildVierendeelFrame(p: VierendeelFrameParams): FeaModelInput {
   }
   const t = p.thickness;
   const fixed = (p.base ?? 'fixed') === 'fixed';
-  const nodeId = (vi: number, hj: number) => `n${vi}_${hj}`;
+  const rigid = p.rigidEndZones ?? true;
+  const gamma = p.unitWeight ? p.unitWeight / 1728 / 1000 : 0; // pcf → kip/in³
+  const jointId = (vi: number, hj: number) => `n${vi}_${hj}`;
 
-  const nodes = [];
+  const nodes: { id: string; x: number; y: number }[] = [];
+  const xy = new Map<string, { x: number; y: number }>();
+  const addNode = (id: string, x: number, y: number) => {
+    nodes.push({ id, x, y });
+    xy.set(id, { x, y });
+  };
   for (let hj = 0; hj < nH; hj++) {
-    for (let vi = 0; vi < nV; vi++) {
-      nodes.push({ id: nodeId(vi, hj), x: verticals[vi].x, y: horizontals[hj].y });
-    }
+    for (let vi = 0; vi < nV; vi++) addNode(jointId(vi, hj), verticals[vi].x, horizontals[hj].y);
   }
 
-  // One section per pier line and per chord line (A = strip·t, I = t·strip³/12).
+  // One section per pier line and per chord line (A = strip·t, I = t·strip³/12),
+  // plus a single very-stiff section for the rigid end-zone stubs.
   const section = (id: string, strip: number) => ({ id, A: strip * t, I: (t * strip ** 3) / 12 });
-  const sections = [
+  const realSecs = [
     ...verticals.map((v, vi) => section(`pier${vi}`, v.width)),
     ...horizontals.map((h, hj) => section(`chord${hj}`, h.depth)),
   ];
+  const RIGID_FACTOR = 1e3;
+  const sections = rigid
+    ? [
+        ...realSecs,
+        {
+          id: 'rigid',
+          A: Math.max(...realSecs.map((s) => s.A)) * RIGID_FACTOR,
+          I: Math.max(...realSecs.map((s) => s.I)) * RIGID_FACTOR,
+        },
+      ]
+    : realSecs;
 
-  const elements = [];
-  // Pier (vertical) segments between adjacent chord levels.
+  const elements: { id: string; nodeI: string; nodeJ: string; materialId: string; sectionId: string }[] = [];
+  // Flexible element id → local distributed load (wx axial, wy transverse). Gravity
+  // is global −y: transverse on horizontal chords (wy), axial on vertical piers (wx).
+  const elemLoad = new Map<string, { wx: number; wy: number }>();
+  const addElemLoad = (id: string, wx: number, wy: number) => {
+    const cur = elemLoad.get(id) ?? { wx: 0, wy: 0 };
+    elemLoad.set(id, { wx: cur.wx + wx, wy: cur.wy + wy });
+  };
+  const nodeLoad = new Map<string, { fx: number; fy: number }>();
+  const addNodeLoad = (id: string, fx: number, fy: number) => {
+    const cur = nodeLoad.get(id) ?? { fx: 0, fy: 0 };
+    nodeLoad.set(id, { fx: cur.fx + fx, fy: cur.fy + fy });
+  };
+
+  // Add a flexible member, inset from each joint by the perpendicular strip's
+  // half-width with rigid stubs when rigidEndZones is on. The flexible span keeps
+  // the member id; the stubs use rl_ ids and the rigid section.
+  const addMember = (id: string, sectionId: string, aId: string, bId: string, offA: number, offB: number) => {
+    const a = xy.get(aId)!;
+    const b = xy.get(bId)!;
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!rigid || L - offA - offB <= 1e-6) {
+      elements.push({ id, nodeI: aId, nodeJ: bId, materialId: 'm', sectionId });
+      return;
+    }
+    const ux = (b.x - a.x) / L;
+    const uy = (b.y - a.y) / L;
+    const faceA = `${id}~a`;
+    const faceB = `${id}~b`;
+    addNode(faceA, a.x + ux * offA, a.y + uy * offA);
+    addNode(faceB, b.x - ux * offB, b.y - uy * offB);
+    elements.push({ id: `rl_${id}_a`, nodeI: aId, nodeJ: faceA, materialId: 'm', sectionId: 'rigid' });
+    elements.push({ id, nodeI: faceA, nodeJ: faceB, materialId: 'm', sectionId });
+    elements.push({ id: `rl_${id}_b`, nodeI: faceB, nodeJ: bId, materialId: 'm', sectionId: 'rigid' });
+  };
+
+  // Pier members (vertical), inset by the chord half-depths at each end.
   for (let vi = 0; vi < nV; vi++) {
     for (let hj = 0; hj < nH - 1; hj++) {
-      elements.push({
-        id: `p${vi}_${hj}`,
-        nodeI: nodeId(vi, hj),
-        nodeJ: nodeId(vi, hj + 1),
-        materialId: 'm',
-        sectionId: `pier${vi}`,
-      });
+      const id = `p${vi}_${hj}`;
+      addMember(id, `pier${vi}`, jointId(vi, hj), jointId(vi, hj + 1), horizontals[hj].depth / 2, horizontals[hj + 1].depth / 2);
+      // Pier runs bottom→top (local +x up); self-weight is axial, local −x.
+      if (gamma > 0) addElemLoad(id, -(verticals[vi].width * t * gamma), 0);
     }
   }
-  // Chord (horizontal) segments between adjacent piers.
+  // Chord members (horizontal), inset by the pier half-widths at each end.
   for (let hj = 0; hj < nH; hj++) {
     for (let vi = 0; vi < nV - 1; vi++) {
-      elements.push({
-        id: `c${vi}_${hj}`,
-        nodeI: nodeId(vi, hj),
-        nodeJ: nodeId(vi + 1, hj),
-        materialId: 'm',
-        sectionId: `chord${hj}`,
-      });
+      const id = `c${vi}_${hj}`;
+      addMember(id, `chord${hj}`, jointId(vi, hj), jointId(vi + 1, hj), verticals[vi].width / 2, verticals[vi + 1].width / 2);
+      // Chord is horizontal (local +y up); self-weight + superimposed are transverse, local −y.
+      let w = gamma > 0 ? horizontals[hj].depth * t * gamma : 0;
+      if (p.gravity) w += Math.abs(p.gravity);
+      if (w > 0) addElemLoad(id, 0, -w);
     }
   }
 
-  // Base supports at the lowest chord line (hj = 0).
-  const supports = verticals.map((_, vi) => ({ nodeId: nodeId(vi, 0), dx: true, dy: true, rz: fixed }));
+  // Joint-overlap self-weight (the rigid-area weight) as nodal loads — only in the
+  // rigid model, where the flexible members exclude the joints (no double count).
+  if (rigid && gamma > 0) {
+    for (let vi = 0; vi < nV; vi++) {
+      for (let hj = 0; hj < nH; hj++) {
+        addNodeLoad(jointId(vi, hj), 0, -(verticals[vi].width * horizontals[hj].depth * t * gamma));
+      }
+    }
+  }
 
-  // Lateral load split equally across the top-level nodes.
+  // Lateral load split equally across the top-level joints.
   const topHj = nH - 1;
-  const nodalLoads =
-    p.lateralLoad && nV > 0
-      ? verticals.map((_, vi) => ({ nodeId: nodeId(vi, topHj), fx: p.lateralLoad! / nV }))
-      : [];
+  if (p.lateralLoad) {
+    for (let vi = 0; vi < nV; vi++) addNodeLoad(jointId(vi, topHj), p.lateralLoad / nV, 0);
+  }
 
-  // Gravity on every chord member (uniform, downward).
-  const elementLoads = p.gravity
-    ? elements
-        .filter((e) => e.id.startsWith('c'))
-        .map((e) => ({ elementId: e.id, wy: -Math.abs(p.gravity!) }))
-    : [];
+  const supports = verticals.map((_, vi) => ({ nodeId: jointId(vi, 0), dx: true, dy: true, rz: fixed }));
 
   return {
     nodes,
@@ -174,8 +239,8 @@ export function buildVierendeelFrame(p: VierendeelFrameParams): FeaModelInput {
     sections,
     elements,
     supports,
-    nodalLoads,
-    elementLoads,
+    nodalLoads: [...nodeLoad].map(([nodeId, l]) => ({ nodeId, fx: l.fx, fy: l.fy })),
+    elementLoads: [...elemLoad].map(([elementId, l]) => ({ elementId, wx: l.wx, wy: l.wy })),
   };
 }
 

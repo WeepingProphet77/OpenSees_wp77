@@ -112,9 +112,9 @@ describe('FEA builders', () => {
     expect(m.elementLoads).toEqual([{ elementId: 'beam', wy: -0.02, wz: 0, wx: 0 }]);
   });
 
-  it('buildVierendeelFrame maps a pier×chord grid to nodes, members, sections & loads', () => {
+  it('buildVierendeelFrame (centerline) maps a pier×chord grid to nodes, members, sections & loads', () => {
     // 3 piers × 2 chords = one row of 2 openings. Pass lines out of order to
-    // exercise the internal sort.
+    // exercise the internal sort. rigidEndZones off → pure centerline mapping.
     const m = buildVierendeelFrame({
       verticals: [
         { x: 120, width: 8 },
@@ -129,6 +129,7 @@ describe('FEA builders', () => {
       E: 4000,
       lateralLoad: 10,
       gravity: 0.02,
+      rigidEndZones: false,
     });
     // nodes = nV·nH = 6; members = piers nV·(nH−1)=3 + chords nH·(nV−1)=4 = 7.
     expect(m.nodes).toHaveLength(6);
@@ -146,6 +147,74 @@ describe('FEA builders', () => {
     expect(m.elementLoads).toHaveLength(4);
     // Sorting: leftmost pier centerline x is 0.
     expect(Math.min(...m.nodes.map((n) => n.x))).toBe(0);
+  });
+
+  it('buildVierendeelFrame (rigid) adds end-zone stubs, face nodes and joint self-weight', () => {
+    const m = buildVierendeelFrame({
+      verticals: [
+        { x: 0, width: 8 },
+        { x: 60, width: 6 },
+        { x: 120, width: 8 },
+      ],
+      horizontals: [
+        { y: 0, depth: 10 },
+        { y: 96, depth: 10 },
+      ],
+      thickness: 8,
+      E: 4000,
+      unitWeight: 150,
+    });
+    const flex = m.elements.filter((e) => /^[pc]\d+_\d+$/.test(e.id));
+    const stubs = m.elements.filter((e) => e.id.startsWith('rl_'));
+    expect(flex).toHaveLength(7); // flexible members keep p/c ids
+    expect(stubs).toHaveLength(14); // 2 rigid stubs per member
+    expect(m.sections.some((s) => s.id === 'rigid')).toBe(true);
+    expect(m.nodes).toHaveLength(6 + 2 * 7); // 6 joints + 2 face nodes per member
+    // Every joint overlap is applied as a downward nodal self-weight (6 joints).
+    expect(m.nodalLoads.filter((l) => (l.fy ?? 0) < 0)).toHaveLength(6);
+    // Self-weight on all 7 flexible members.
+    expect(m.elementLoads).toHaveLength(7);
+  });
+
+  it('buildVierendeelFrame self-weight equals the solid panel weight (joints included)', () => {
+    const verticals = [
+      { x: 0, width: 8 },
+      { x: 60, width: 6 },
+      { x: 120, width: 8 },
+    ];
+    const horizontals = [
+      { y: 0, depth: 12 },
+      { y: 96, depth: 10 },
+      { y: 192, depth: 10 },
+    ];
+    const t = 8;
+    const pcf = 150;
+    const m = buildVierendeelFrame({ verticals, horizontals, thickness: t, E: 4000, unitWeight: pcf });
+    const xy = new Map(m.nodes.map((n) => [n.id, n]));
+    let applied = m.elementLoads.reduce((a, el) => {
+      const e = m.elements.find((x) => x.id === el.elementId)!;
+      const ni = xy.get(e.nodeI)!;
+      const nj = xy.get(e.nodeJ)!;
+      // weight magnitude per length is whichever of axial (piers) / transverse (chords) is set
+      const wmag = Math.abs(el.wx ?? 0) + Math.abs(el.wy ?? 0);
+      return a + wmag * Math.hypot(nj.x - ni.x, nj.y - ni.y);
+    }, 0);
+    applied += m.nodalLoads.reduce((a, nl) => a + Math.max(0, -(nl.fy ?? 0)), 0);
+
+    // True panel extent runs face-to-face of the edge strips.
+    const left = Math.min(...verticals.map((v) => v.x - v.width / 2));
+    const right = Math.max(...verticals.map((v) => v.x + v.width / 2));
+    const bottom = Math.min(...horizontals.map((h) => h.y - h.depth / 2));
+    const top = Math.max(...horizontals.map((h) => h.y + h.depth / 2));
+    let openings = 0;
+    for (let i = 0; i < verticals.length - 1; i++)
+      for (let j = 0; j < horizontals.length - 1; j++) {
+        const ow = verticals[i + 1].x - verticals[i + 1].width / 2 - (verticals[i].x + verticals[i].width / 2);
+        const oh = horizontals[j + 1].y - horizontals[j + 1].depth / 2 - (horizontals[j].y + horizontals[j].depth / 2);
+        openings += ow * oh;
+      }
+    const solidWeight = ((right - left) * (top - bottom) - openings) * t * (pcf / 1728 / 1000);
+    expect(applied).toBeCloseTo(solidWeight, 6);
   });
 
   it('buildVierendeelFrame rejects a degenerate grid (needs ≥2 piers and ≥2 chords)', () => {
