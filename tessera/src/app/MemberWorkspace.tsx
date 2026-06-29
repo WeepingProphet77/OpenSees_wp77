@@ -25,7 +25,6 @@ import { Stat } from '@/components/ui/stat';
 import { UtilizationGauge } from '@/components/ui/utilizationGauge';
 import { Spinner } from '@/components/ui/spinner';
 import { NumberField, SelectField } from '@/components/ui/field';
-import { cn } from '@/lib/utils';
 import { SectionView } from '@/components/diagrams/SectionView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
 import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
@@ -42,9 +41,6 @@ export function MemberWorkspace() {
   const projectName = useProjectStore((s) => s.project.meta.name);
   const engineer = useProjectStore((s) => s.project.meta.engineer);
   const setDesign = useProjectStore((s) => s.setDesign);
-  const addMember = useProjectStore((s) => s.addMember);
-  const removeMember = useProjectStore((s) => s.removeMember);
-  const selectMember = useProjectStore((s) => s.selectMember);
 
   const activeEntry = memberDesigns.find((m) => m.id === activeMemberId) ?? memberDesigns[0];
   const design = activeEntry?.design ?? defaultMemberDesign();
@@ -175,52 +171,9 @@ export function MemberWorkspace() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* ── Member tabs ── */}
-      <div className="flex flex-wrap items-center gap-1 border-b" role="tablist" aria-label="Members">
-        {memberDesigns.map((m) => {
-          const active = m.id === activeEntry?.id;
-          return (
-            <div
-              key={m.id}
-              className={cn(
-                'flex items-center rounded-t-md border-b-2',
-                active ? 'border-primary bg-accent/40' : 'border-transparent',
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => selectMember(m.id)}
-                className={cn(
-                  'max-w-[14rem] truncate px-3 py-1.5 text-sm',
-                  active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {m.design.name?.trim() || 'Untitled member'}
-              </button>
-              {memberDesigns.length > 1 && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${m.design.name?.trim() || 'member'}`}
-                  onClick={() => removeMember(m.id)}
-                  className="px-1.5 py-1.5 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-        <Button size="sm" variant="ghost" className="ml-1" onClick={() => addMember()}>
-          <Plus /> Add member
-        </Button>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-12">
-        {/* ── Inputs ── */}
-        <div className="space-y-6 lg:col-span-5">
+    <div className="grid gap-6 lg:grid-cols-12">
+      {/* ── Inputs ── */}
+      <div className="space-y-6 lg:col-span-5">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Section &amp; geometry</CardTitle>
@@ -629,7 +582,6 @@ export function MemberWorkspace() {
             </CardContent>
           </Card>
         )}
-      </div>
       </div>
     </div>
   );

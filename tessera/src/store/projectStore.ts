@@ -6,7 +6,7 @@
  * actions operate through this store.
  */
 import { create } from 'zustand';
-import { createEmptyProject, createMemberEntry, type Project } from '../schema/project';
+import { createEmptyProject, createMemberEntry, createVierendeelEntry, type Project } from '../schema/project';
 import { type MemberDesignInput } from '../design/memberDesign';
 import { type VierendeelPanelInput } from '../design/vierendeelPanel';
 import { APP_VERSION } from '../appInfo';
@@ -33,6 +33,12 @@ export interface ProjectState {
   selectMember: (id: string) => void;
   /** Patch the active Vierendeel panel's design model (marks the store dirty). */
   setVierendeelPanel: (patch: Partial<VierendeelPanelInput>) => void;
+  /** Add a new Vierendeel panel, make it active; returns its id. */
+  addVierendeelPanel: () => string;
+  /** Remove a Vierendeel panel; keeps at least one and reselects if needed. */
+  removeVierendeelPanel: (id: string) => void;
+  /** Make a Vierendeel panel the active one shown in the workspace. */
+  selectVierendeelPanel: (id: string) => void;
   /** Replace the project and mark it dirty (in-app edits). */
   updateProject: (project: Project) => void;
   /** Clear the dirty flag after a successful save. */
@@ -99,6 +105,31 @@ export const useProjectStore = create<ProjectState>((set) => ({
       },
       dirty: true,
     })),
+
+  addVierendeelPanel: () => {
+    const entry = createVierendeelEntry();
+    set((s) => ({
+      project: {
+        ...s.project,
+        vierendeelPanels: [...s.project.vierendeelPanels, entry],
+        activeVierendeelId: entry.id,
+      },
+      dirty: true,
+    }));
+    return entry.id;
+  },
+
+  removeVierendeelPanel: (id) =>
+    set((s) => {
+      if (s.project.vierendeelPanels.length <= 1) return s; // always keep one panel
+      const vierendeelPanels = s.project.vierendeelPanels.filter((m) => m.id !== id);
+      const activeVierendeelId =
+        s.project.activeVierendeelId === id ? vierendeelPanels[0].id : s.project.activeVierendeelId;
+      return { project: { ...s.project, vierendeelPanels, activeVierendeelId }, dirty: true };
+    }),
+
+  selectVierendeelPanel: (id) =>
+    set((s) => ({ project: { ...s.project, activeVierendeelId: id }, dirty: true })),
 
   updateProject: (project) => set({ project, dirty: true }),
 
