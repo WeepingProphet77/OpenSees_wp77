@@ -9,6 +9,7 @@
  */
 import { CURRENT_SCHEMA_VERSION } from './project';
 import { defaultMemberDesign } from '../design/memberDesign';
+import { defaultVierendeelPanel } from '../design/vierendeelPanel';
 
 export type RawDoc = Record<string, unknown>;
 export type Migration = (data: RawDoc) => RawDoc;
@@ -24,6 +25,9 @@ const asObject = (v: unknown): RawDoc => (v && typeof v === 'object' ? (v as Raw
  * `1 → 2`: the single flat `design` blob became a `memberDesigns` array (one
  * entry per member) with an `activeMemberId`. Wrap the existing design (or a
  * default, if absent) into the first member and select it.
+ *
+ * `2 → 3`: Vierendeel panels became part of the project. Seed one default panel
+ * and select it (older projects never carried Vierendeel state).
  */
 export const migrations: Record<number, Migration> = {
   0: (data) => ({
@@ -43,6 +47,15 @@ export const migrations: Record<number, Migration> = {
       schemaVersion: 2,
       memberDesigns: [{ id, design: design ?? defaultMemberDesign() }],
       activeMemberId: id,
+    };
+  },
+  2: (data) => {
+    const id = crypto.randomUUID();
+    return {
+      ...data,
+      schemaVersion: 3,
+      vierendeelPanels: [{ id, panel: defaultVierendeelPanel() }],
+      activeVierendeelId: id,
     };
   },
 };
