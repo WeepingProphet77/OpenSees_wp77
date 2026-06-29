@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { momentCurvatureMetrics } from './momentCurvatureMetrics';
+import { momentCurvatureMetrics, ductilityClass } from './momentCurvatureMetrics';
 import type { MomentCurvatureLandmarks, MomentCurvaturePoint } from './feaModel';
 
 const pt = (kappa: number, M: number): MomentCurvaturePoint => ({ kappa, M, eps: 0 });
@@ -63,6 +63,16 @@ describe('momentCurvatureMetrics', () => {
     expect(m.mu).toBeCloseTo(2.7 / 0.9, 6);
     expect(m.cracking).toEqual({ kappa: 0.15e-3, M: 18 });
     expect(m.firstYield).toEqual({ kappa: 0.9e-3, M: 92 });
+  });
+
+  it('classifies curvature ductility into indicative bands', () => {
+    expect(ductilityClass(5).level).toBe('high');
+    expect(ductilityClass(4).level).toBe('high');
+    expect(ductilityClass(3).level).toBe('moderate');
+    expect(ductilityClass(2).level).toBe('moderate');
+    expect(ductilityClass(1.5).level).toBe('limited');
+    expect(ductilityClass(NaN).level).toBe('na');
+    expect(ductilityClass(0).level).toBe('na');
   });
 
   it('falls back to secant yield / last-point ultimate when landmarks are all null', () => {

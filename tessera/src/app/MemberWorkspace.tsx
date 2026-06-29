@@ -32,6 +32,7 @@ import { MomentCurvatureChart } from '@/components/diagrams/MomentCurvatureChart
 import { InteractionDiagram } from '@/components/diagrams/InteractionDiagram';
 import { buildMomentCurvatureSpec } from '@/fea/momentCurvatureSpec';
 import { useMomentCurvature } from '@/fea/useMomentCurvature';
+import { momentCurvatureMetrics, ductilityClass } from '@/fea/momentCurvatureMetrics';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
 
@@ -111,6 +112,15 @@ export function MemberWorkspace() {
     }
   }, [isPM, input.section, design.layers, design.fc]);
   const momentCurvature = useMomentCurvature(mcSpec);
+
+  // Curvature-ductility flag (μ = φu/φy) derived from the M–φ result, surfaced as
+  // an indicative classification on the member results.
+  const ductility = useMemo(() => {
+    if (momentCurvature.status !== 'ready' || !momentCurvature.result) return null;
+    const m = momentCurvatureMetrics(momentCurvature.result.points, momentCurvature.result.landmarks);
+    if (!m) return null;
+    return { mu: m.mu, ...ductilityClass(m.mu) };
+  }, [momentCurvature.status, momentCurvature.result]);
 
   const isT = design.sectionType === 'tbeam';
   const isCustom = design.sectionType === 'custom';
@@ -470,12 +480,30 @@ export function MemberWorkspace() {
 
             {!isPM && (
               <Card>
-                <CardHeader>
-                  <CardTitle>Moment–curvature (fiber section)</CardTitle>
-                  <CardDescription>
-                    OpenSees-WASM fiber analysis of the actual section geometry; closed-form Mₙ and cracking
-                    moment overlaid for cross-check, with equivalent-yield ductility μ = φu/φy.
-                  </CardDescription>
+                <CardHeader className="flex-row items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>Moment–curvature (fiber section)</CardTitle>
+                    <CardDescription>
+                      OpenSees-WASM fiber analysis of the actual section geometry; closed-form Mₙ and cracking
+                      moment overlaid for cross-check, with curvature ductility μ = φu/φy.
+                    </CardDescription>
+                  </div>
+                  {ductility && ductility.level !== 'na' && (
+                    <span
+                      className={
+                        'whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                        {
+                          success: 'bg-[var(--success)]/15 text-[var(--success)]',
+                          warning: 'bg-[var(--warning)]/15 text-[var(--warning)]',
+                          destructive: 'bg-destructive/15 text-destructive',
+                          muted: 'bg-muted text-muted-foreground',
+                        }[ductility.tone]
+                      }
+                      title="Indicative curvature-ductility band (μ = φu/φy); required ductility is detailing/demand dependent."
+                    >
+                      μ = {ductility.mu.toFixed(1)} · {ductility.label}
+                    </span>
+                  )}
                 </CardHeader>
                 <CardContent className="flex justify-center">
                   {momentCurvature.status === 'ready' && momentCurvature.result ? (

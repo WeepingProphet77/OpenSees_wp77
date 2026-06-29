@@ -39,6 +39,26 @@ export interface MomentCurvatureMetrics {
 /** Moment-rise fraction defining the equivalent-yield secant (0.7 ≈ reduced-stiffness idealization). */
 const YIELD_FRACTION = 0.7;
 
+export interface DuctilityClass {
+  level: 'limited' | 'moderate' | 'high' | 'na';
+  label: string;
+  /** Semantic tone for UI (maps to the design-token colors). */
+  tone: 'destructive' | 'warning' | 'success' | 'muted';
+}
+
+/**
+ * Classify a section's curvature ductility μ = φu/φy into indicative bands.
+ * These are screening bands for at-a-glance feedback, NOT a single code limit —
+ * required ductility is detailing/seismic-demand dependent. ≥4 high, 2–4
+ * moderate, <2 limited.
+ */
+export function ductilityClass(mu: number): DuctilityClass {
+  if (!Number.isFinite(mu) || mu <= 0) return { level: 'na', label: 'n/a', tone: 'muted' };
+  if (mu >= 4) return { level: 'high', label: 'high ductility', tone: 'success' };
+  if (mu >= 2) return { level: 'moderate', label: 'moderate ductility', tone: 'warning' };
+  return { level: 'limited', label: 'limited ductility', tone: 'destructive' };
+}
+
 export function momentCurvatureMetrics(
   points: readonly MomentCurvaturePoint[],
   landmarks?: MomentCurvatureLandmarks | null,
