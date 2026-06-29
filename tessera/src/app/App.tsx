@@ -7,6 +7,7 @@ import { parseProject, pickAndReadTsr, saveProjectToFile } from '@/project/tsrFi
 import { APP_NAME, APP_VERSION } from '@/appInfo';
 import { MemberWorkspace } from './MemberWorkspace';
 import { VierendeelWorkspace } from './VierendeelWorkspace';
+import { ProjectNavigator, type WorkspaceView } from './ProjectNavigator';
 
 /**
  * Tessera application shell: top bar with project name + .tsr controls, and the
@@ -21,7 +22,7 @@ function App() {
   const markSaved = useProjectStore((s) => s.markSaved);
 
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
-  const [view, setView] = useState<'member' | 'vierendeel'>('member');
+  const [view, setView] = useState<WorkspaceView>('member');
 
   const handleSave = async () => {
     try {
@@ -110,28 +111,13 @@ function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-6 py-6">
-        <div className="mb-5 inline-flex overflow-hidden rounded-md border" role="tablist" aria-label="Workspace">
-          {([
-            ['member', 'Member design'],
-            ['vierendeel', 'Vierendeel panel'],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={view === id}
-              onClick={() => setView(id)}
-              className={
-                'px-3.5 py-1.5 text-sm transition-colors ' +
-                (view === id ? 'bg-primary text-primary-foreground' : 'bg-card hover:bg-muted')
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {view === 'member' ? <MemberWorkspace /> : <VierendeelWorkspace />}
+      <main className="mx-auto flex max-w-[1400px] flex-col gap-6 px-6 py-6 lg:flex-row">
+        <ProjectNavigator
+          view={view}
+          onView={setView}
+          className="lg:w-56 lg:shrink-0 lg:border-r lg:pr-4"
+        />
+        <div className="min-w-0 flex-1">{view === 'member' ? <MemberWorkspace /> : <VierendeelWorkspace />}</div>
       </main>
     </div>
   );

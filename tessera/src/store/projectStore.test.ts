@@ -109,4 +109,18 @@ describe('projectStore', () => {
     expect(project.vierendeelPanels[0].panel.cols).toBe(3);
     expect(dirty).toBe(true);
   });
+
+  it('adds, selects, and removes Vierendeel panels (keeps at least one)', () => {
+    const s = useProjectStore.getState();
+    const firstId = s.project.vierendeelPanels[0].id;
+    const secondId = s.addVierendeelPanel();
+    expect(useProjectStore.getState().project.vierendeelPanels).toHaveLength(2);
+    expect(useProjectStore.getState().project.activeVierendeelId).toBe(secondId);
+    s.selectVierendeelPanel(firstId);
+    expect(useProjectStore.getState().project.activeVierendeelId).toBe(firstId);
+    s.removeVierendeelPanel(secondId);
+    expect(useProjectStore.getState().project.vierendeelPanels).toHaveLength(1);
+    s.removeVierendeelPanel(firstId); // refuses to remove the last one
+    expect(useProjectStore.getState().project.vierendeelPanels).toHaveLength(1);
+  });
 });
