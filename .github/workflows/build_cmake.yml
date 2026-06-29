@@ -73,9 +73,18 @@ jobs:
           conan profile detect --force	  
       - name: 2.3.2. Building the OpenSees Applications and Python module
         run: |
-          export FC=/opt/homebrew/bin/gfortran-13
-          export LDFLAGS="-L/opt/homebrew/lib/gcc/current -lgfortran"
+          # Locate gfortran (version-independent) and its runtime lib directory —
+          # the hardcoded gfortran-13 / lib/gcc/current paths don't exist on the runner.
+          FC=$(ls /opt/homebrew/bin/gfortran-* /opt/homebrew/bin/gfortran 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$FC" ]; then brew install gcc; FC=$(ls /opt/homebrew/bin/gfortran-* /opt/homebrew/bin/gfortran 2>/dev/null | sort -V | tail -1); fi
+          GFORTRAN_LIBDIR=$(dirname "$("$FC" -print-file-name=libgfortran.dylib)")
+          echo "Using FC=$FC  libdir=$GFORTRAN_LIBDIR"
+          # Build the C/C++ Conan deps (HDF5, …) first — WITHOUT forcing the Fortran
+          # runtime onto their links (that broke the HDF5 compiler check).
           conan install . --build=missing
+          # Expose the Fortran compiler + its real runtime lib path for the OpenSees link.
+          export FC
+          export LDFLAGS="-L$GFORTRAN_LIBDIR -lgfortran"
           cmake -S . -B build/Release -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$HOME/bin	
           cd build/Release
           cmake --build . --target OpenSees -j8
