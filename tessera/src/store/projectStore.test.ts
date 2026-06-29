@@ -98,4 +98,15 @@ describe('projectStore', () => {
     s.removeMember(onlyId);
     expect(useProjectStore.getState().project.memberDesigns).toHaveLength(1);
   });
+
+  it('seeds one Vierendeel panel and persists edits to the active one', () => {
+    const s = useProjectStore.getState();
+    expect(s.project.vierendeelPanels).toHaveLength(1);
+    expect(s.project.activeVierendeelId).toBe(s.project.vierendeelPanels[0].id);
+    s.setVierendeelPanel({ width: 300, cols: 3 });
+    const { project, dirty } = useProjectStore.getState();
+    expect(project.vierendeelPanels[0].panel.width).toBe(300);
+    expect(project.vierendeelPanels[0].panel.cols).toBe(3);
+    expect(dirty).toBe(true);
+  });
 });

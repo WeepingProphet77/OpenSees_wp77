@@ -125,6 +125,31 @@ describe('parseProject — schema migration', () => {
       expect(result.project.activeMemberId).toBe(result.project.memberDesigns[0].id);
     }
   });
+
+  it('migrates a v2 project (no Vierendeel) up to v3 with a seeded panel', () => {
+    const v2 = {
+      format: 'tessera-project',
+      schemaVersion: 2,
+      appVersion: '0.2.0',
+      meta: { name: 'Two', project: '', engineer: '', createdISO: FIXED.toISOString(), modifiedISO: FIXED.toISOString() },
+      settings: { units: 'US', code: 'ACI318-19' },
+      materials: { concrete: [], steel: [] },
+      sections: [],
+      members: [],
+      loadCases: [],
+      loadCombos: [],
+      memberDesigns: [{ id: 'm1', design: defaultMemberDesign() }],
+      activeMemberId: 'm1',
+    };
+    const result = parseProject(JSON.stringify(v2));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+      expect(result.project.vierendeelPanels).toHaveLength(1);
+      expect(result.project.activeVierendeelId).toBe(result.project.vierendeelPanels[0].id);
+      expect(result.project.memberDesigns[0].id).toBe('m1'); // member state preserved
+    }
+  });
 });
 
 describe('suggestedFilename', () => {

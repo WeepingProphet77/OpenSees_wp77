@@ -13,9 +13,10 @@
 import { z } from 'zod';
 import { MemberSchema, SectionSchema } from './domain';
 import { MemberDesignSchema, defaultMemberDesign } from '../design/memberDesign';
+import { VierendeelPanelSchema, defaultVierendeelPanel } from '../design/vierendeelPanel';
 
 /** Current schema version. Bumped whenever the persisted shape changes. */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** Discriminating literal at the top of every Tessera project file. */
 export const PROJECT_FORMAT = 'tessera-project';
@@ -82,6 +83,18 @@ export function createMemberEntry(design = defaultMemberDesign()): MemberDesignE
   return { id: crypto.randomUUID(), design };
 }
 
+/** One Vierendeel panel in the project: a stable id + its design model. */
+export const VierendeelPanelEntrySchema = z.object({
+  id: z.string(),
+  panel: VierendeelPanelSchema,
+});
+export type VierendeelPanelEntry = z.infer<typeof VierendeelPanelEntrySchema>;
+
+/** Build a fresh Vierendeel panel entry (new id + a default or supplied panel). */
+export function createVierendeelEntry(panel = defaultVierendeelPanel()): VierendeelPanelEntry {
+  return { id: crypto.randomUUID(), panel };
+}
+
 export const ProjectSchema = z.object({
   format: z.literal(PROJECT_FORMAT),
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
@@ -103,6 +116,10 @@ export const ProjectSchema = z.object({
   memberDesigns: z.array(MemberDesignEntrySchema).default([]),
   /** Id of the member currently shown in the workspace. */
   activeMemberId: z.string().optional(),
+  // Vierendeel wall panels (the Vierendeel workspace tool).
+  vierendeelPanels: z.array(VierendeelPanelEntrySchema).default([]),
+  /** Id of the Vierendeel panel currently shown in the workspace. */
+  activeVierendeelId: z.string().optional(),
   // Optional, regenerable analysis/design cache.
   results: z.unknown().optional(),
 });
@@ -119,6 +136,7 @@ export type Steel = z.infer<typeof SteelSchema>;
 export function createEmptyProject(appVersion: string, now: Date = new Date()): Project {
   const iso = now.toISOString();
   const member = createMemberEntry();
+  const panel = createVierendeelEntry();
   return {
     format: PROJECT_FORMAT,
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -138,5 +156,7 @@ export function createEmptyProject(appVersion: string, now: Date = new Date()): 
     loadCombos: [],
     memberDesigns: [member],
     activeMemberId: member.id,
+    vierendeelPanels: [panel],
+    activeVierendeelId: panel.id,
   };
 }

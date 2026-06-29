@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useProjectStore } from '@/store/projectStore';
+import { defaultVierendeelPanel, type VierendeelPanelInput } from '@/design/vierendeelPanel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { NumberField, SelectField } from '@/components/ui/field';
 import { Stat } from '@/components/ui/stat';
@@ -7,48 +9,20 @@ import { Spinner } from '@/components/ui/spinner';
 import { VierendeelDiagram } from '@/components/diagrams/VierendeelDiagram';
 import { useVierendeel, type VierendeelInput } from '@/fea/useVierendeel';
 
-interface PanelState {
-  width: number;
-  height: number;
-  thickness: number;
-  cols: number;
-  rows: number;
-  pierWidth: number;
-  chordDepth: number;
-  fc: number;
-  lambda: number;
-  unitWeight: number;
-  lateralLoad: number;
-  gravity: number;
-  base: 'fixed' | 'pinned';
-}
-
-const DEFAULT_PANEL: PanelState = {
-  width: 240,
-  height: 144,
-  thickness: 8,
-  cols: 2,
-  rows: 1,
-  pierWidth: 36,
-  chordDepth: 24,
-  fc: 5,
-  lambda: 1,
-  unitWeight: 150,
-  lateralLoad: 15,
-  gravity: 0.02,
-  base: 'fixed',
-};
-
 /**
  * Vierendeel wall-panel tool (build spec §10 workflow 3): define the panel and
  * its opening grid, solve the equivalent frame in the WASM engine, and review
- * member forces + per-member sectional screening. Panel state is local to this
- * view for now (not yet persisted to the .tsr project).
+ * member forces + per-member sectional screening. The active panel is persisted
+ * in the .tsr project.
  */
 export function VierendeelWorkspace() {
-  const [panel, setPanel] = useState<PanelState>(DEFAULT_PANEL);
-  const set = <K extends keyof PanelState>(key: K, value: PanelState[K]) =>
-    setPanel((p) => ({ ...p, [key]: value }));
+  const panels = useProjectStore((s) => s.project.vierendeelPanels);
+  const activeId = useProjectStore((s) => s.project.activeVierendeelId);
+  const setVierendeelPanel = useProjectStore((s) => s.setVierendeelPanel);
+
+  const panel = panels.find((p) => p.id === activeId)?.panel ?? panels[0]?.panel ?? defaultVierendeelPanel();
+  const set = <K extends keyof VierendeelPanelInput>(key: K, value: VierendeelPanelInput[K]) =>
+    setVierendeelPanel({ [key]: value } as Partial<VierendeelPanelInput>);
 
   // Ec from f′c (ACI 19.2.2, normal-weight): 57000√f′c (psi) → ksi.
   const E = useMemo(() => (57000 * Math.sqrt(panel.fc * 1000)) / 1000, [panel.fc]);
@@ -96,8 +70,8 @@ export function VierendeelWorkspace() {
             <NumberField label="Panel height" value={panel.height} onChange={(x) => set('height', x)} suffix="in" positive />
             <NumberField label="Thickness" value={panel.thickness} onChange={(x) => set('thickness', x)} suffix="in" positive />
             <NumberField label="f′c" value={panel.fc} onChange={(x) => set('fc', x)} suffix="ksi" positive />
-            <NumberField label="Openings across" value={panel.cols} onChange={(x) => set('cols', x)} min={1} step="1" />
-            <NumberField label="Openings up" value={panel.rows} onChange={(x) => set('rows', x)} min={1} step="1" />
+            <NumberField label="Openings across" value={panel.cols} onChange={(x) => set('cols', Math.max(1, Math.round(x)))} min={1} step="1" />
+            <NumberField label="Openings up" value={panel.rows} onChange={(x) => set('rows', Math.max(1, Math.round(x)))} min={1} step="1" />
             <NumberField label="Pier width" value={panel.pierWidth} onChange={(x) => set('pierWidth', x)} suffix="in" positive />
             <NumberField label="Chord depth" value={panel.chordDepth} onChange={(x) => set('chordDepth', x)} suffix="in" positive />
             <NumberField label="λ (lightweight)" value={panel.lambda} onChange={(x) => set('lambda', x)} positive />
