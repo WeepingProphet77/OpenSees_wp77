@@ -26,6 +26,7 @@ import { UtilizationGauge } from '@/components/ui/utilizationGauge';
 import { Spinner } from '@/components/ui/spinner';
 import { NumberField, SelectField } from '@/components/ui/field';
 import { SectionView } from '@/components/diagrams/SectionView';
+import { Member3DView } from '@/components/diagrams/Member3DView';
 import { SectionDrawer } from '@/components/diagrams/SectionDrawer';
 import { StressStrainChart } from '@/components/diagrams/StressStrainChart';
 import { MomentCurvatureChart } from '@/components/diagrams/MomentCurvatureChart';
@@ -412,6 +413,19 @@ export function MemberWorkspace() {
         {analysis.ok ? (
           <>
             <ResultsPanel analysis={analysis.value} />
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Member 3D view</CardTitle>
+                <CardDescription>
+                  The cross-section extruded along the span, with reinforcement runs and the member
+                  local axes (x along span, y depth, z width). Drag the sliders to orbit.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-center">
+                <Member3DView section={input.section} lengthIn={input.L} layers={input.layers} />
+              </CardContent>
+            </Card>
 
             <MemberForceDiagrams
               lengthFt={design.L}
