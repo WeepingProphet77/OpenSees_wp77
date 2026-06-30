@@ -114,27 +114,80 @@ export function gradeById(id: string): PowerFormulaSteel {
 /** Grades available for the reinforcement editor. */
 export const gradeOptions = steelPresets.map((p) => ({ id: p.id, name: p.name, category: p.category }));
 
-/** Build the engine section from the design model (parametric or custom polygon). */
-export function buildEngineSection(d: MemberDesignInput): Section {
-  const base = { fc: d.fc, h: d.h, lambda: d.lambda };
-  switch (d.sectionType) {
+/**
+ * The geometry subset of a member design — the section shape the engine builds a
+ * `Section` from, separated from the member's materials/reinforcement/loads.
+ * This is the seam for normalizing sections into a shared catalog: today it is
+ * extracted 1:1 from the flat design (`memberSectionOf`); later it can come from
+ * a referenced project section without changing `engineSectionFrom`.
+ */
+export interface MemberSection {
+  sectionType: MemberDesignInput['sectionType'];
+  b: number;
+  h: number;
+  bf: number;
+  hf: number;
+  numStems: number;
+  stemWidth: number;
+  numVoids: number;
+  voidDiameter: number;
+  voidCenterDepth: number;
+  bt: number;
+  ht: number;
+  hg: number;
+  bb: number;
+  points?: { x: number; y: number }[];
+  holes?: { x: number; y: number }[][];
+}
+
+/** Extract the section geometry from a flat member design. */
+export function memberSectionOf(d: MemberDesignInput): MemberSection {
+  return {
+    sectionType: d.sectionType,
+    b: d.b,
+    h: d.h,
+    bf: d.bf,
+    hf: d.hf,
+    numStems: d.numStems,
+    stemWidth: d.stemWidth,
+    numVoids: d.numVoids,
+    voidDiameter: d.voidDiameter,
+    voidCenterDepth: d.voidCenterDepth,
+    bt: d.bt,
+    ht: d.ht,
+    hg: d.hg,
+    bb: d.bb,
+    points: d.points,
+    holes: d.holes,
+  };
+}
+
+/** Build the engine `Section` from a member section + its concrete material params. */
+export function engineSectionFrom(s: MemberSection, mat: { fc: number; lambda: number }): Section {
+  const base = { fc: mat.fc, h: s.h, lambda: mat.lambda };
+  switch (s.sectionType) {
     case 'custom':
     case 'dxf': {
-      const points = d.points ?? [];
-      const h = points.length ? Math.max(...points.map((p) => p.y)) : d.h;
-      return { sectionType: d.sectionType, fc: d.fc, lambda: d.lambda, h, points, holes: d.holes ?? [] };
+      const points = s.points ?? [];
+      const h = points.length ? Math.max(...points.map((p) => p.y)) : s.h;
+      return { sectionType: s.sectionType, fc: mat.fc, lambda: mat.lambda, h, points, holes: s.holes ?? [] };
     }
     case 'tbeam':
-      return { ...base, sectionType: 'tbeam', bw: d.b, bf: d.bf, hf: d.hf };
+      return { ...base, sectionType: 'tbeam', bw: s.b, bf: s.bf, hf: s.hf };
     case 'doubletee':
-      return { ...base, sectionType: 'doubletee', bf: d.bf, hf: d.hf, numStems: d.numStems, stemWidth: d.stemWidth, bw: d.numStems * d.stemWidth };
+      return { ...base, sectionType: 'doubletee', bf: s.bf, hf: s.hf, numStems: s.numStems, stemWidth: s.stemWidth, bw: s.numStems * s.stemWidth };
     case 'hollowcore':
-      return { ...base, sectionType: 'hollowcore', bf: d.bf, numVoids: d.numVoids, voidDiameter: d.voidDiameter, voidCenterDepth: d.voidCenterDepth, bw: d.bf };
+      return { ...base, sectionType: 'hollowcore', bf: s.bf, numVoids: s.numVoids, voidDiameter: s.voidDiameter, voidCenterDepth: s.voidCenterDepth, bw: s.bf };
     case 'sandwich':
-      return { ...base, sectionType: 'sandwich', bt: d.bt, ht: d.ht, hg: d.hg, bb: d.bb, bw: Math.max(d.bt, d.bb) };
+      return { ...base, sectionType: 'sandwich', bt: s.bt, ht: s.ht, hg: s.hg, bb: s.bb, bw: Math.max(s.bt, s.bb) };
     default:
-      return { ...base, sectionType: 'rectangular', bw: d.b, bf: d.b, hf: d.h };
+      return { ...base, sectionType: 'rectangular', bw: s.b, bf: s.b, hf: s.h };
   }
+}
+
+/** Build the engine section from the design model (parametric or custom polygon). */
+export function buildEngineSection(d: MemberDesignInput): Section {
+  return engineSectionFrom(memberSectionOf(d), { fc: d.fc, lambda: d.lambda });
 }
 
 /** Topping spec for composite floor members, or null when none. */
@@ -142,15 +195,20 @@ export function toppingOf(d: MemberDesignInput): { width: number; thickness: num
   return d.hasTopping ? { width: d.toppingWidth, thickness: d.toppingThickness, fc: d.toppingFc } : null;
 }
 
-/** Horizontal center of the section (default x for reinforcement). */
-export function sectionCenterX(d: MemberDesignInput): number {
-  if ((d.sectionType === 'custom' || d.sectionType === 'dxf') && d.points && d.points.length) {
-    const xs = d.points.map((p) => p.x);
+/** Horizontal center of a member section (default x for reinforcement). */
+export function sectionCenterXOf(s: MemberSection): number {
+  if ((s.sectionType === 'custom' || s.sectionType === 'dxf') && s.points && s.points.length) {
+    const xs = s.points.map((p) => p.x);
     return (Math.min(...xs) + Math.max(...xs)) / 2;
   }
-  if (d.sectionType === 'tbeam' || d.sectionType === 'doubletee' || d.sectionType === 'hollowcore') return d.bf / 2;
-  if (d.sectionType === 'sandwich') return Math.max(d.bt, d.bb) / 2;
-  return d.b / 2;
+  if (s.sectionType === 'tbeam' || s.sectionType === 'doubletee' || s.sectionType === 'hollowcore') return s.bf / 2;
+  if (s.sectionType === 'sandwich') return Math.max(s.bt, s.bb) / 2;
+  return s.b / 2;
+}
+
+/** Horizontal center of the section (default x for reinforcement). */
+export function sectionCenterX(d: MemberDesignInput): number {
+  return sectionCenterXOf(memberSectionOf(d));
 }
 
 /** Map the flat design model into the engine's member-analysis input. */
