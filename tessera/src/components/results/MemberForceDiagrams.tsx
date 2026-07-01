@@ -63,7 +63,7 @@ export function MemberForceDiagrams({
   /** Optional prestress/section data → adds service fiber-stress diagrams. */
   stress?: MemberStressInputs;
 }) {
-  const { status, diagram, reactions } = useMemberDiagrams({ lengthIn: lengthFt * 12, E, A, I, w });
+  const { status, diagram, reactions, error } = useMemberDiagrams({ lengthIn: lengthFt * 12, E, A, I, w });
   const [cursorXFrac, setCursorXFrac] = useState<number | null>(null);
   const [comboId, setComboId] = useState('service');
 
@@ -121,7 +121,7 @@ export function MemberForceDiagrams({
         )}
         {status === 'unavailable' && (
           <p className="text-sm text-muted-foreground" aria-live="polite">
-            FEA engine unavailable — diagrams skipped.
+            FEA engine unavailable — diagrams skipped.{error ? ` (${error})` : ''}
           </p>
         )}
         {status === 'ready' && diagram && (

@@ -55,7 +55,11 @@ export type FeaModuleFactory = (opts?: {
 export function defaultModuleUrl(): string {
   // import.meta.env.BASE_URL is Vite's configured `base` ('/OpenSees_wp77/' in prod).
   const base = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
-  return `${base}fea/feaEngine.mjs`;
+  // Per-deploy cache-busting token (commit SHA in CI) so a redeploy never serves
+  // a stale cached glue/.wasm. resolveFeaModuleUrls propagates the query to the
+  // sibling .wasm too. `typeof` guard keeps this safe if `define` didn't run.
+  const version = typeof __ENGINE_VERSION__ !== 'undefined' ? __ENGINE_VERSION__ : 'dev';
+  return `${base}fea/feaEngine.mjs?v=${version}`;
 }
 
 /**

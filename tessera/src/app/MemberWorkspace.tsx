@@ -535,7 +535,7 @@ export function MemberWorkspace() {
                       ) : momentCurvature.status === 'idle' ? (
                         'Add reinforcement to trace the moment–curvature response.'
                       ) : (
-                        'Moment–curvature unavailable (FEA engine not loaded).'
+                        `Moment–curvature unavailable${momentCurvature.error ? ` — ${momentCurvature.error}` : ' (FEA engine not loaded)'}.`
                       )}
                     </p>
                   )}
