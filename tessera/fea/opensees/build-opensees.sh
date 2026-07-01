@@ -137,6 +137,14 @@ compile "$HERE/driver.cpp" "$DRIVER_OBJ"
 OBJS+=("$DRIVER_OBJ")
 
 echo "Linking -> $OUT_DIR/feaEngine.mjs"
+# GROWABLE_ARRAYBUFFERS=0 is REQUIRED alongside ALLOW_MEMORY_GROWTH=1. By default
+# (=1) Emscripten backs growable WASM memory with a *resizable* ArrayBuffer via
+# wasmMemory.toResizableBuffer() on modern V8 (Chrome/Edge 2025+); the string glue
+# then calls TextDecoder.decode(HEAPU8.subarray(...)), and TextDecoder rejects a
+# resizable buffer ("must not be resizable") — which crashed engine init and
+# showed as "FEA engine unavailable" in the app. =0 returns the plain, NON-
+# resizable wasmMemory.buffer (classic copy-on-grow), which TextDecoder accepts,
+# with memory growth retained (no OOM cap). Do not remove.
 em++ "${OBJS[@]}" \
   -O2 \
   -lembind \
@@ -147,6 +155,7 @@ em++ "${OBJS[@]}" \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0 \
   -sDISABLE_EXCEPTION_CATCHING=1 \
+  -sGROWABLE_ARRAYBUFFERS=0 \
   -o "$OUT_DIR/feaEngine.mjs"
 
 echo "Build OK:"

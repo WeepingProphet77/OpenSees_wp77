@@ -38,6 +38,10 @@ fi
 mkdir -p "$OUT_DIR"
 
 echo "Building $SRC -> $OUT_DIR/feaEngineEigen.mjs (+ feaEngineEigen.wasm)"
+# GROWABLE_ARRAYBUFFERS=0 is REQUIRED alongside ALLOW_MEMORY_GROWTH=1 — the default
+# backs growable WASM memory with a resizable ArrayBuffer on modern V8, which
+# TextDecoder.decode() rejects. =0 keeps growth but a non-resizable buffer. See
+# the fuller note in fea/opensees/build-opensees.sh.
 em++ "$SRC" \
   -O3 -std=c++17 \
   -I"$EIGEN_DIR" \
@@ -49,6 +53,7 @@ em++ "$SRC" \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=0 \
   -sDYNAMIC_EXECUTION=0 \
+  -sGROWABLE_ARRAYBUFFERS=0 \
   -o "$OUT_DIR/feaEngineEigen.mjs"
 
 echo "Build OK:"
