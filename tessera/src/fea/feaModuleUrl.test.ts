@@ -21,4 +21,14 @@ describe('resolveFeaModuleUrls', () => {
     const { locateFile } = resolveFeaModuleUrls('https://host.dev/app/fea/feaEngine.mjs');
     expect(locateFile('feaEngine.wasm')).toBe('https://host.dev/app/fea/feaEngine.wasm');
   });
+
+  it('propagates a cache-busting query onto the sibling .wasm', () => {
+    const { glueUrl, locateFile } = resolveFeaModuleUrls('/OpenSees_wp77/fea/feaEngine.mjs?v=abc1234');
+    // Glue is imported verbatim (query intact).
+    expect(glueUrl).toBe('/OpenSees_wp77/fea/feaEngine.mjs?v=abc1234');
+    // The .wasm gets the SAME query so glue+wasm are a matched pair, and the dir
+    // is derived from the path (not the query) — no `/fea/fea/`.
+    expect(locateFile('feaEngine.wasm')).toBe('/OpenSees_wp77/fea/feaEngine.wasm?v=abc1234');
+    expect(locateFile('feaEngine.wasm')).not.toContain('/fea/fea/');
+  });
 });
