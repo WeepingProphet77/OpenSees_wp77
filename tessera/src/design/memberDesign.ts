@@ -92,6 +92,11 @@ export const MemberDesignSchema = z.object({
   Av: z.number().nonnegative().default(0.22),
   fyt: z.number().positive().default(60),
   stirrupSpacing: z.number().positive().default(12),
+  // Torsion (ACI 318-19 §22.7); Tu = 0 skips torsion design.
+  Tu: z.number().nonnegative().default(0), // factored torsion (kip-ft)
+  At: z.number().nonnegative().default(0), // closed torsion stirrup, one leg (in²)
+  Al: z.number().nonnegative().default(0), // longitudinal torsion steel, total (in²)
+  torsionCover: z.number().positive().default(1.75), // to stirrup centerline (in)
   RH: z.number().min(0).max(100).default(70),
   VS: z.number().positive().default(3),
   fpi: z.number().nonnegative().default(189),
@@ -239,6 +244,10 @@ export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
       Av: d.Av,
       fyt: d.fyt,
       stirrupSpacing: d.stirrupSpacing,
+      Tu: d.Tu * 12, // kip-ft → kip-in
+      At: d.At,
+      Al: d.Al,
+      torsionCover: d.torsionCover,
     },
     prestress: { fpi: d.fpi, strandType: d.strandType as StrandType },
   };

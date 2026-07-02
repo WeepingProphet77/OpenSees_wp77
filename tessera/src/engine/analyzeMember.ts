@@ -15,6 +15,7 @@ import {
   analyzeBeam,
   concreteModulus,
   grossSectionProperties,
+  sectionToPolygon,
   type BeamResult,
 } from './beamCalculations';
 import type { Section, SteelLayer } from './types';
@@ -23,6 +24,7 @@ import { governingStrength } from './loadCombinations';
 import { check, type DesignCheck } from './designChecks/checkTypes';
 import { serviceStressChecks, type ServiceStressResult } from './designChecks/serviceStresses';
 import { shearChecks, type ShearResult } from './designChecks/shear';
+import { torsionChecks, ringAreaPerimeter, type TorsionResult } from './designChecks/torsion';
 import { camberDeflection, type CamberResult } from './designChecks/camberDeflection';
 import {
   prestressLosses,
@@ -61,6 +63,14 @@ export interface AnalyzeMemberInput {
     fyt?: number;
     stirrupSpacing?: number;
     deflectionLimits?: { live?: number; longTerm?: number };
+    /** Factored torsional moment (kip-in); 0 (default) skips torsion design. */
+    Tu?: number;
+    /** Closed torsion-stirrup area, one leg, within s (in²). */
+    At?: number;
+    /** Longitudinal torsion steel provided, total around ph (in²). */
+    Al?: number;
+    /** Clear-ish cover to the stirrup centerline for Aoh/ph (in), default 1.75. */
+    torsionCover?: number;
   };
   prestress?: {
     /** Initial strand stress before transfer (ksi). */
@@ -101,6 +111,7 @@ export interface MemberAnalysis {
   flexure: BeamResult;
   stresses?: ServiceStressResult;
   shear: ShearResult;
+  torsion?: TorsionResult;
   camber: CamberResult;
   losses?: LossResult;
   composite?: {
@@ -202,6 +213,41 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     s: design.stirrupSpacing,
   });
 
+  // ── Torsion (ACI 318-19 §22.7), only when a factored torque is supplied ──────
+  let torsion: TorsionResult | undefined;
+  const Tu = design.Tu ?? 0;
+  if (Tu > 0) {
+    // Gross outside area/perimeter from the real section polygon; stirrup-cage
+    // area/perimeter from a rectangular cage inscribed in the web at the cover.
+    const outer = sectionToPolygon(section).outer;
+    const { area: Acp, perimeter: pcp } = ringAreaPerimeter(outer);
+    const cover = design.torsionCover ?? 1.75;
+    const x1 = Math.max(bw - 2 * cover, 0);
+    const y1 = Math.max(h - 2 * cover, 0);
+    const Aoh = x1 * y1;
+    const ph = 2 * (x1 + y1);
+    torsion = torsionChecks({
+      Tu,
+      Vu: VuAtD,
+      fc,
+      lambda,
+      bw,
+      d,
+      Acp: Acp || A,
+      pcp,
+      Aoh,
+      ph,
+      Vc: shear.Vc,
+      fyt: design.fyt,
+      Av: design.Av,
+      At: design.At,
+      s: design.stirrupSpacing,
+      Al: design.Al,
+      prestressed: hasStrands,
+      fpc: A > 0 ? Pe / A : 0,
+    });
+  }
+
   // ── Camber / deflection ─────────────────────────────────────────────────────
   const camber = camberDeflection({
     Pi,
@@ -293,6 +339,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     ...flexureChecks,
     ...(stresses?.checks ?? []),
     ...shear.checks,
+    ...(torsion?.checks ?? []),
     ...camber.checks,
     ...(composite ? [...composite.stresses.checks, composite.interface.check] : []),
   ];
@@ -314,6 +361,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
     flexure,
     stresses,
     shear,
+    torsion,
     camber,
     losses,
     composite,

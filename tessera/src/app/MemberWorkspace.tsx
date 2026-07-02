@@ -12,6 +12,7 @@ import {
 import { parseDxf, UNIT_SCALE_TO_INCHES } from '@/dxf/dxfParser';
 import { dxfRingsToSection } from '@/dxf/dxfGeometry';
 import { analyzeMember, type MemberAnalysis } from '@/engine/analyzeMember';
+import { PHI_TORSION } from '@/engine/designChecks/torsion';
 import { analyzeBiaxial, type BiaxialResult } from '@/engine/beamCalculations';
 import { pmInteraction, momentCapacityAtP, type PMInteractionResult } from '@/engine/columnPM';
 import { handlingStresses } from '@/engine/handlingStresses';
@@ -387,6 +388,18 @@ export function MemberWorkspace() {
             <NumberField label="Stirrup Av" value={design.Av} onChange={(v) => set('Av', v)} suffix="in²" />
             <NumberField label="Stirrup spacing s" value={design.stirrupSpacing} onChange={(v) => set('stirrupSpacing', v)} suffix="in" />
             <NumberField label="fyt" value={design.fyt} onChange={(v) => set('fyt', v)} suffix="ksi" />
+            {!isPM && (
+              <>
+                <NumberField label="Torsion Tu (factored)" value={design.Tu} onChange={(v) => set('Tu', v)} suffix="kip-ft" />
+                {design.Tu > 0 && (
+                  <>
+                    <NumberField label="Torsion stirrup At (1 leg)" value={design.At} onChange={(v) => set('At', v)} suffix="in²" />
+                    <NumberField label="Longitudinal Al" value={design.Al} onChange={(v) => set('Al', v)} suffix="in²" />
+                    <NumberField label="Stirrup cover" value={design.torsionCover} onChange={(v) => set('torsionCover', v)} suffix="in" positive />
+                  </>
+                )}
+              </>
+            )}
             <NumberField label="fpi (initial)" value={design.fpi} onChange={(v) => set('fpi', v)} suffix="ksi" />
             <NumberField label="RH" value={design.RH} onChange={(v) => set('RH', v)} suffix="%" />
             <NumberField label="V/S ratio" value={design.VS} onChange={(v) => set('VS', v)} suffix="in" />
@@ -539,6 +552,59 @@ export function MemberWorkspace() {
                       )}
                     </p>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {analysis.value.torsion && (
+              <Card>
+                <CardHeader className="flex-row items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>Torsion (ACI 318-19 §22.7)</CardTitle>
+                    <CardDescription>
+                      Threshold/cracking torsion, closed-stirrup + longitudinal steel, and the
+                      combined shear–torsion section-adequacy limit (§22.7.7.1). θ = 45°.
+                    </CardDescription>
+                  </div>
+                  {(() => {
+                    const t = analysis.value.torsion!;
+                    const pass = t.checks.every((c) => c.status === 'pass');
+                    return (
+                      <span
+                        className={
+                          'whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ' +
+                          (t.negligible
+                            ? 'bg-muted text-muted-foreground'
+                            : pass
+                              ? 'bg-[var(--success)]/15 text-[var(--success)]'
+                              : 'bg-destructive/15 text-destructive')
+                        }
+                      >
+                        {t.negligible ? 'below threshold' : pass ? 'TORSION PASS' : 'TORSION FAIL'}
+                      </span>
+                    );
+                  })()}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+                    <Stat label="φ·Tth (neglect if Tu ≤)" value={`${(PHI_TORSION * analysis.value.torsion.Tth / 12).toFixed(1)} kip-ft`} />
+                    <Stat label="Cracking Tcr" value={`${(analysis.value.torsion.Tcr / 12).toFixed(1)} kip-ft`} />
+                    <Stat label="φTn provided" value={`${(analysis.value.torsion.phiTn / 12).toFixed(1)} kip-ft`} />
+                    {!analysis.value.torsion.negligible && (
+                      <>
+                        <Stat label="Req. At/s" value={`${analysis.value.torsion.AtSReq.toFixed(4)} in²/in`} />
+                        <Stat label="Req. Al" value={`${Math.max(analysis.value.torsion.AlReq, analysis.value.torsion.AlMin).toFixed(2)} in²`} />
+                      </>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {analysis.value.torsion.checks.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-muted-foreground">{c.label}</span>
+                        <UtilizationGauge className="w-40" utilization={c.utilization} status={c.status} />
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             )}
