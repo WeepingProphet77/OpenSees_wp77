@@ -34,6 +34,7 @@ import { MomentCurvatureChart } from '@/components/diagrams/MomentCurvatureChart
 import { InteractionDiagram } from '@/components/diagrams/InteractionDiagram';
 import { buildMomentCurvatureSpec } from '@/fea/momentCurvatureSpec';
 import { useMomentCurvature } from '@/fea/useMomentCurvature';
+import { useMemberDiagrams } from '@/fea/useMemberDiagrams';
 import { momentCurvatureMetrics, ductilityClass } from '@/fea/momentCurvatureMetrics';
 import { ResultsPanel } from '@/components/results/ResultsPanel';
 import { MemberForceDiagrams } from '@/components/results/MemberForceDiagrams';
@@ -114,6 +115,21 @@ export function MemberWorkspace() {
     }
   }, [isPM, input.section, design.layers, design.fc]);
   const momentCurvature = useMomentCurvature(mcSpec);
+
+  // Solved beam diagrams (shear/moment/deflection) — also feed the 3D deformed-shape
+  // overlay. Same simply-supported model the force-diagram card uses. Inputs are the
+  // scalars the hook depends on; an invalid (non-ok) analysis resolves to idle.
+  const memberDiagrams = useMemberDiagrams(
+    analysis.ok
+      ? {
+          lengthIn: design.L * 12,
+          E: analysis.value.properties.Ec,
+          A: analysis.value.properties.A,
+          I: analysis.value.properties.Ig,
+          w: analysis.value.properties.wSelf + (design.superDead + design.live) / 12,
+        }
+      : { lengthIn: 0, E: 0, A: 0, I: 0, w: 0 },
+  );
 
   // Curvature-ductility flag (μ = φu/φy) derived from the M–φ result, surfaced as
   // an indicative classification on the member results.
@@ -312,6 +328,8 @@ export function MemberWorkspace() {
             <div />
             <NumberField label="Superimposed dead" value={design.superDead} onChange={(v) => set('superDead', v)} suffix="klf" />
             <NumberField label="Live load" value={design.live} onChange={(v) => set('live', v)} suffix="klf" />
+            <NumberField label="Wind W" value={design.wind} onChange={(v) => set('wind', v)} suffix="klf" />
+            <NumberField label="Seismic E" value={design.seismic} onChange={(v) => set('seismic', v)} suffix="klf" />
           </CardContent>
         </Card>
 
@@ -436,7 +454,13 @@ export function MemberWorkspace() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex justify-center">
-                <Member3DView section={input.section} lengthIn={input.L} layers={input.layers} />
+                <Member3DView
+                  section={input.section}
+                  lengthIn={input.L}
+                  layers={input.layers}
+                  deflection={memberDiagrams.diagram?.deflection}
+                  moment={memberDiagrams.diagram?.moment}
+                />
               </CardContent>
             </Card>
 
