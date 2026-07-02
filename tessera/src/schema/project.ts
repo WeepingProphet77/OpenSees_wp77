@@ -12,11 +12,11 @@
  */
 import { z } from 'zod';
 import { MemberSchema, SectionSchema } from './domain';
-import { MemberDesignSchema, defaultMemberDesign } from '../design/memberDesign';
+import { MemberDesignSchema, MemberSectionSchema, defaultMemberDesign } from '../design/memberDesign';
 import { VierendeelPanelSchema, defaultVierendeelPanel } from '../design/vierendeelPanel';
 
 /** Current schema version. Bumped whenever the persisted shape changes. */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /** Discriminating literal at the top of every Tessera project file. */
 export const PROJECT_FORMAT = 'tessera-project';
@@ -95,6 +95,14 @@ export function createVierendeelEntry(panel = defaultVierendeelPanel()): Vierend
   return { id: crypto.randomUUID(), panel };
 }
 
+/** A named, reusable section in the project's section library (catalog). */
+export const SectionLibraryEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  section: MemberSectionSchema,
+});
+export type SectionLibraryEntry = z.infer<typeof SectionLibraryEntrySchema>;
+
 export const ProjectSchema = z.object({
   format: z.literal(PROJECT_FORMAT),
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
@@ -120,6 +128,9 @@ export const ProjectSchema = z.object({
   vierendeelPanels: z.array(VierendeelPanelEntrySchema).default([]),
   /** Id of the Vierendeel panel currently shown in the workspace. */
   activeVierendeelId: z.string().optional(),
+  // Reusable named sections (a project-level catalog); additive — members still
+  // carry their own geometry inline, and a library section is applied by copy.
+  sectionLibrary: z.array(SectionLibraryEntrySchema).default([]),
   // Optional, regenerable analysis/design cache.
   results: z.unknown().optional(),
 });
@@ -158,5 +169,6 @@ export function createEmptyProject(appVersion: string, now: Date = new Date()): 
     activeMemberId: member.id,
     vierendeelPanels: [panel],
     activeVierendeelId: panel.id,
+    sectionLibrary: [],
   };
 }
