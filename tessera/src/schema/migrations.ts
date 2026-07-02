@@ -28,6 +28,9 @@ const asObject = (v: unknown): RawDoc => (v && typeof v === 'object' ? (v as Raw
  *
  * `2 → 3`: Vierendeel panels became part of the project. Seed one default panel
  * and select it (older projects never carried Vierendeel state).
+ *
+ * `3 → 4`: a reusable section library (catalog) was added. It is additive — no
+ * member data changes — so older projects simply gain an empty `sectionLibrary`.
  */
 export const migrations: Record<number, Migration> = {
   0: (data) => ({
@@ -58,6 +61,11 @@ export const migrations: Record<number, Migration> = {
       activeVierendeelId: id,
     };
   },
+  3: (data) => ({
+    ...data,
+    schemaVersion: 4,
+    sectionLibrary: Array.isArray(data.sectionLibrary) ? data.sectionLibrary : [],
+  }),
 };
 
 /**

@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand';
 import { createEmptyProject, createMemberEntry, createVierendeelEntry, type Project } from '../schema/project';
-import { type MemberDesignInput } from '../design/memberDesign';
+import { memberSectionOf, type MemberDesignInput, type MemberSection } from '../design/memberDesign';
 import { type VierendeelPanelInput } from '../design/vierendeelPanel';
 import { APP_VERSION } from '../appInfo';
 
@@ -39,6 +39,12 @@ export interface ProjectState {
   removeVierendeelPanel: (id: string) => void;
   /** Make a Vierendeel panel the active one shown in the workspace. */
   selectVierendeelPanel: (id: string) => void;
+  /** Save the active member's current section into the reusable library; returns its id. */
+  saveSectionToLibrary: (name: string) => string;
+  /** Copy a library section's geometry onto the active member's design. */
+  applyLibrarySection: (id: string) => void;
+  /** Remove a section from the library. */
+  removeLibrarySection: (id: string) => void;
   /** Replace the project and mark it dirty (in-app edits). */
   updateProject: (project: Project) => void;
   /** Clear the dirty flag after a successful save. */
@@ -130,6 +136,66 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   selectVierendeelPanel: (id) =>
     set((s) => ({ project: { ...s.project, activeVierendeelId: id }, dirty: true })),
+
+  saveSectionToLibrary: (name) => {
+    const id = crypto.randomUUID();
+    set((s) => {
+      const active = s.project.memberDesigns.find((m) => m.id === s.project.activeMemberId);
+      if (!active) return s;
+      const entry = {
+        id,
+        name: name.trim() || `Section ${s.project.sectionLibrary.length + 1}`,
+        section: memberSectionOf(active.design),
+      };
+      return {
+        project: { ...s.project, sectionLibrary: [...s.project.sectionLibrary, entry] },
+        dirty: true,
+      };
+    });
+    return id;
+  },
+
+  applyLibrarySection: (id) =>
+    set((s) => {
+      const entry = s.project.sectionLibrary.find((e) => e.id === id);
+      if (!entry) return s;
+      // Copy only the geometry keys onto the active member's design (behavior-
+      // preserving: the member keeps its own inline geometry as the source).
+      const g = entry.section as MemberSection;
+      const patch: Partial<MemberDesignInput> = {
+        sectionType: g.sectionType,
+        b: g.b,
+        h: g.h,
+        bf: g.bf,
+        hf: g.hf,
+        numStems: g.numStems,
+        stemWidth: g.stemWidth,
+        numVoids: g.numVoids,
+        voidDiameter: g.voidDiameter,
+        voidCenterDepth: g.voidCenterDepth,
+        bt: g.bt,
+        ht: g.ht,
+        hg: g.hg,
+        bb: g.bb,
+        points: g.points,
+        holes: g.holes,
+      };
+      return {
+        project: {
+          ...s.project,
+          memberDesigns: s.project.memberDesigns.map((m) =>
+            m.id === s.project.activeMemberId ? { ...m, design: { ...m.design, ...patch } } : m,
+          ),
+        },
+        dirty: true,
+      };
+    }),
+
+  removeLibrarySection: (id) =>
+    set((s) => ({
+      project: { ...s.project, sectionLibrary: s.project.sectionLibrary.filter((e) => e.id !== id) },
+      dirty: true,
+    })),
 
   updateProject: (project) => set({ project, dirty: true }),
 

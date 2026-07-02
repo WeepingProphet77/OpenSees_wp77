@@ -45,6 +45,9 @@ export function MemberWorkspace() {
   const projectName = useProjectStore((s) => s.project.meta.name);
   const engineer = useProjectStore((s) => s.project.meta.engineer);
   const setDesign = useProjectStore((s) => s.setDesign);
+  const sectionLibrary = useProjectStore((s) => s.project.sectionLibrary);
+  const saveSectionToLibrary = useProjectStore((s) => s.saveSectionToLibrary);
+  const applyLibrarySection = useProjectStore((s) => s.applyLibrarySection);
 
   const activeEntry = memberDesigns.find((m) => m.id === activeMemberId) ?? memberDesigns[0];
   const design = activeEntry?.design ?? defaultMemberDesign();
@@ -160,6 +163,12 @@ export function MemberWorkspace() {
 
   const dxfInputRef = useRef<HTMLInputElement>(null);
   const [dxfMsg, setDxfMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [librarySel, setLibrarySel] = useState('');
+
+  const handleSaveSection = () => {
+    const name = window.prompt('Name this section for the library:', design.name || 'Section');
+    if (name != null) setLibrarySel(saveSectionToLibrary(name));
+  };
 
   const handleImportDxf = async (file: File) => {
     try {
@@ -227,6 +236,25 @@ export function MemberWorkspace() {
               <option value="custom">Custom (drawn)</option>
               <option value="dxf">DXF import</option>
             </SelectField>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[10rem] flex-1">
+                <SelectField label="Section library" value={librarySel} onChange={setLibrarySel}>
+                  <option value="">— saved sections —</option>
+                  {sectionLibrary.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
+              <Button size="sm" variant="outline" disabled={!librarySel} onClick={() => librarySel && applyLibrarySection(librarySel)}>
+                Apply
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleSaveSection}>
+                Save current…
+              </Button>
+            </div>
 
             <div className="space-y-2">
               <input

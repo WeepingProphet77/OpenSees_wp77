@@ -148,6 +148,30 @@ export interface MemberSection {
   holes?: { x: number; y: number }[][];
 }
 
+/**
+ * Zod schema for a persisted member section — the shape stored in the project's
+ * reusable section library (`.tsr`). Mirrors the `MemberSection` interface; the
+ * geometry keys of a design, without its materials/reinforcement/loads.
+ */
+export const MemberSectionSchema = z.object({
+  sectionType: z.enum(['rectangular', 'tbeam', 'doubletee', 'hollowcore', 'sandwich', 'custom', 'dxf']),
+  b: z.number(),
+  h: z.number(),
+  bf: z.number(),
+  hf: z.number(),
+  numStems: z.number(),
+  stemWidth: z.number(),
+  numVoids: z.number(),
+  voidDiameter: z.number(),
+  voidCenterDepth: z.number(),
+  bt: z.number(),
+  ht: z.number(),
+  hg: z.number(),
+  bb: z.number(),
+  points: z.array(PointSchema).optional(),
+  holes: z.array(z.array(PointSchema)).optional(),
+});
+
 /** Extract the section geometry from a flat member design. */
 export function memberSectionOf(d: MemberDesignInput): MemberSection {
   return {

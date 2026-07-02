@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { serializeProject, parseProject, suggestedFilename } from './tsrFile';
 import { createEmptyProject, CURRENT_SCHEMA_VERSION } from '../schema/project';
 import { defaultMemberDesign } from '../design/memberDesign';
+import { defaultVierendeelPanel } from '../design/vierendeelPanel';
 
 const FIXED = new Date('2026-06-21T12:00:00.000Z');
 
@@ -148,6 +149,33 @@ describe('parseProject — schema migration', () => {
       expect(result.project.vierendeelPanels).toHaveLength(1);
       expect(result.project.activeVierendeelId).toBe(result.project.vierendeelPanels[0].id);
       expect(result.project.memberDesigns[0].id).toBe('m1'); // member state preserved
+    }
+  });
+
+  it('migrates a v3 project up to v4 with an empty section library (member state preserved)', () => {
+    const v3 = {
+      format: 'tessera-project',
+      schemaVersion: 3,
+      appVersion: '0.3.0',
+      meta: { name: 'Three', project: '', engineer: '', createdISO: FIXED.toISOString(), modifiedISO: FIXED.toISOString() },
+      settings: { units: 'US', code: 'ACI318-19' },
+      materials: { concrete: [], steel: [] },
+      sections: [],
+      members: [],
+      loadCases: [],
+      loadCombos: [],
+      memberDesigns: [{ id: 'm1', design: defaultMemberDesign() }],
+      activeMemberId: 'm1',
+      vierendeelPanels: [{ id: 'v1', panel: defaultVierendeelPanel() }],
+      activeVierendeelId: 'v1',
+    };
+    const result = parseProject(JSON.stringify(v3));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+      expect(result.project.sectionLibrary).toEqual([]);
+      expect(result.project.memberDesigns[0].id).toBe('m1');
+      expect(result.project.vierendeelPanels[0].id).toBe('v1');
     }
   });
 });
