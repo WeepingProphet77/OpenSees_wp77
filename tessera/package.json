@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
+    "e2e": "playwright test",
     "build:wasm": "bash fea/opensees/build-opensees.sh",
     "build:wasm:oracle": "bash fea/build.sh",
     "fea:smoke": "node fea/test/smoke.mjs"
@@ -27,6 +28,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.12",

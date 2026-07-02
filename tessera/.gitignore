@@ -22,6 +22,11 @@ node_modules/.tmp/
 # Test / coverage
 coverage/
 
+# Playwright e2e output
+test-results/
+playwright-report/
+playwright/.cache/
+
 # Built WASM FEA modules (build artifacts — produced by fea/**/build*.sh /
 # wasm-build.yml, lazy-loaded at runtime; never committed) and the C++ object cache.
 public/fea/

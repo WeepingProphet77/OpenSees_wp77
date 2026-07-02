@@ -43,6 +43,11 @@ jobs:
   build:
     needs: wasm
     runs-on: ubuntu-latest
+    # @playwright/test is a devDependency for local e2e; its postinstall would
+    # otherwise download browsers on `npm ci`. e2e is not run in this gate, so
+    # skip the download to keep the build fast (run e2e locally via `npm run e2e`).
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     defaults:
       run:
         working-directory: tessera
