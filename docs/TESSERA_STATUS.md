@@ -1,10 +1,10 @@
-# Tessera — Build Status & Phase 3 Handoff
+# Tessera — Build Status
 
 > Companion to the authoritative spec **`TESSERA_BUILD_PROMPT.md`** (read that first).
 > This file is the durable handoff: what's built, where it lives, the working
-> conventions, and the next task. Update it as phases land.
+> conventions, and what remains. Update it as work lands.
 
-## Status: Phases 0–2 complete and merged to `master`
+## Status: Phases 0–3 complete; Phase 4 substantially complete — all on `master`
 
 The app lives in the **`/tessera`** subdirectory. Baseline check:
 
@@ -12,81 +12,69 @@ The app lives in the **`/tessera`** subdirectory. Baseline check:
 cd tessera && npm ci && npm test && npm run build
 ```
 
-Expect **~170 Vitest tests passing** and a clean strict build (`tsc -b` + `vite build`).
+Expect **~284 Vitest tests passing** (4 skipped when the WASM engine isn't built
+locally) and a clean strict build (`tsc -b` + `vite build`). All five v1 success
+criteria in the spec are met and the app is deployed to GitHub Pages.
 
-### Phase 0 — scaffold & rails
-- Vite 7 + **React 18** + TypeScript; Tailwind v4 + shadcn-style components
-  (`src/components/ui`), `cn()` in `src/lib/utils.ts`.
-- Zustand store (single in-memory project) `src/store/projectStore.ts`; zod.
-- Tested US-customary **units** module `src/units/units.ts`.
-- **Power-formula flexural engine** ported to TS: `src/engine/beamCalculations.ts`
-  + `src/engine/steelPresets.ts`, original Vitest suite preserved.
-- **`.tsr`** project file: `src/project/tsrFile.ts`, zod schema `src/schema/project.ts`
-  with versioned migration `src/schema/migrations.ts`.
-- CI → GitHub Pages: `.github/workflows/web-deploy.yml` (Vite `base = /OpenSees_wp77/`).
+### Phase 0 — scaffold & rails ✅
+- Vite 7 + React 18 + TS; Tailwind v4 + shadcn-style components; Zustand store;
+  zod; tested US-customary units; power-formula flexural engine ported to TS;
+  `.tsr` project file with versioned migrations; CI → GitHub Pages.
 
-### Phase 1 — single-member flexure + checks
-- Domain model `src/schema/domain.ts` (Member with local axes §4.1, Section,
-  reinforcement, loads).
-- Design-check modules `src/engine/designChecks/`: `serviceStresses.ts` (§24.5),
-  `shear.ts` (§22.5 simplified Vc, §9.6.3, §9.7.6.2.2), `camberDeflection.ts`
-  (PCI multipliers, Table 24.2.2), `prestressLosses.ts` (PCI/Zia approximate).
-- `src/engine/statics.ts` (simple-span) + `src/engine/analyzeMember.ts` orchestrator.
-- UI workspace `src/app/MemberWorkspace.tsx`; diagrams in `src/components/diagrams/`
-  (SectionView, SectionDrawer, StrainDiagram, StressStrainChart, InteractionDiagram,
-  PMDiagram); results in `src/components/results/`.
-- jsPDF calc-package report `src/report/generateReport.ts` (lazy-loaded).
-- Flat UI/persistence model `src/design/memberDesign.ts` (`MemberDesignInput`,
-  `designToInput`, `buildEngineSection`).
+### Phase 1 — single-member flexure + checks ✅
+- Power-formula φMₙ, service/transfer stresses (§24.5), shear (§22.5), camber/
+  deflection (PCI), prestress losses (PCI lump-sum), min-strength (§9.6.1.3);
+  member local axes (§4.1); jsPDF calc-package report.
 
-### Phase 2 — member library
-- ACI 318-19 **§5.3 load combinations** `src/engine/loadCombinations.ts`
-  (wired into `analyzeMember`; the old hard-coded 1.2D+1.6L is gone).
-- **Column P-M-M**: `analyzeBiaxial` extended with applied axial **N** (ΣF = N);
-  `src/engine/columnPM.ts` builds the φP–φMₙ curve (cap 0.80/0.85·φ·Po, §22.4.2.1).
-- **Floor + composite topping** `src/engine/compositeSection.ts` (transformed
-  section, staged stresses §24.5, interface shear §16.4); double-tee / hollowcore.
-- **Wall panel** P-M + **handling/stripping** `src/engine/handlingStresses.ts`;
-  sandwich section type.
-- **DXF import (§7)** `src/dxf/dxfParser.ts` + `dxfGeometry.ts` (closed polylines/
-  circles → rings, bulge tessellation, POINT → generic reinforcement placeholders,
-  ring nesting classification, Y-flip to top-fiber-down, unit scaling). Fixtures +
-  ported tests in `src/dxf/__fixtures__` / `*.test.ts`.
+### Phase 2 — member library ✅
+- ACI §5.3 load combinations; column P-M-M (biaxial + axial N); floor double-tee/
+  hollowcore with composite topping (staged/transformed, interface shear §16.4);
+  wall panel P-M + handling/stripping; DXF import (§7).
+
+### Phase 3 — FEA engine (WASM) ✅
+- `FeaEngine` worker interface; OpenSees subset compiled to WASM via Emscripten
+  (StaticAnalysis + ProfileSPDLinDirectSolver, no Fortran) + a self-contained
+  **Eigen oracle** for parity; built in CI by `wasm-build.yml`, consumed by
+  `web-deploy.yml`, smoke-tested in Node.
+- Fiber-section **moment–curvature** with exact cracking/first-yield/crushing
+  landmarks and a curvature-ductility (μ = φu/φy) classification.
+- Robustness: the engine URL is **cache-busted per deploy** (`?v=<sha>`), the
+  glue/.wasm are fetched as a matched pair, load errors are surfaced in the UI,
+  and the engine is built with `-sGROWABLE_ARRAYBUFFERS=0` so modern V8
+  (Chrome/Edge) doesn't hand `TextDecoder` a resizable ArrayBuffer.
+
+### Phase 4 — frames, Vierendeel & polish 🟡 (mostly complete)
+- **Vierendeel wall panel** ✅ — equivalent moment frame (piers + chords) with
+  rigid end-zone links where members overlap and joint-overlap self-weight;
+  solved by the WASM frame engine; member end forces feed the per-member
+  sectional checks (§19.2.3 cracking, §22.5 shear).
+- **Multi-member project management** ✅ — array-of-designs model + left-rail
+  project navigator (members + Vierendeel panels); persisted in `.tsr` (schema v3).
+- **3D viewport** ✅ — dependency-free axonometric SVG: the real section extruded
+  along the span, reinforcement runs, RISA local-axis triad, plus a solved
+  **deformed-shape + bending-moment overlay**.
+- **Torsion (§22.7)** ✅ — threshold/cracking torsion, closed-stirrup + longitudinal
+  steel, combined shear-torsion section adequacy (§22.7.7.1).
+- Component/UX polish: utilization gauges, accessible controls, wind/seismic
+  load-combination inputs feeding the §5.3 governing combination.
 
 ## Working conventions (keep these)
-- Engine is **pure / UI-free**; all code-design math in TS. Every reported
-  capacity cites its **ACI/PCI clause + formula**; solvers report convergence;
-  units explicit (kip, in, ksi).
-- Tests are co-located `*.test.ts`, **excluded from the `tsc -b` build**, run by
-  Vitest (node env). Hand-verify reference values against ACI/PCI.
-- Stack pinned & working: Vite 7, React 18, TS ~5.9, Vitest 4, Tailwind v4,
-  zustand 5, zod 4, jspdf 3 (Node 22).
-- Workflow: new `claude/tessera-phase*-*` feature branch per increment; **draft
-  PR** each; engine-first; merge once checks are green. Pause for a decision at
-  architecturally significant gates.
-- CI: Actions enabled; Pages source = "GitHub Actions". `build_cmake.yml` (native)
-  Windows job fixed (working-directory uses `${{ github.workspace }}`).
+- Engine is **pure / UI-free**; every reported capacity cites its ACI/PCI clause +
+  formula; solvers report convergence; units explicit (kip, in, ksi).
+- Tests co-located `*.test.ts`, excluded from `tsc -b`, run by Vitest (node env).
+- Stack pinned: Vite 7, React 18, TS ~5.9, Vitest 4, Tailwind v4, zustand 5,
+  zod 4, jspdf 3 (Node 22).
+- Workflow: a feature branch + **draft PR** per increment; engine-first; merge once
+  the tessera gates (`wasm / build-wasm` + `build`) are green. The native OpenSees
+  `build_cmake.yml` (Ubuntu/macOS/Windows) is independent of `/tessera` changes.
 
-## Open tech-debt
-- The single member is persisted as a flat `design` blob on the project
-  (`memberDesign.ts`); reconcile with the `members[]` domain model
-  (`schema/domain.ts`) during multi-member management (Phase 4).
-- Prestress-loss relaxation **C-table** is flagged in-code "verify against your
-  PCI edition" (`designChecks/prestressLosses.ts`).
-- Strength load-combo UI inputs are limited to dead/live (wind/seismic factors
-  exist in the combo set but aren't surfaced).
-
-## Next: Phase 3 — OpenSees → WebAssembly FEA engine (§2.2, §12)
-Highest-risk item; **begin with the throwaway go/no-go spike**, not the full engine:
-1. Stand up the **Emscripten SDK**; prove a **minimal elastic 2D portal-frame
-   solve** compiled to WASM, run in a **Web Worker** behind one decoupled
-   **`FeaEngine`** TS interface (model JSON in → displacements / reactions /
-   element end forces out).
-2. Prefer C++/**Eigen** solvers (repo vendors Eigen at `OTHER/eigenAPI/eigen`);
-   **the Fortran-elimination feasibility is the explicit go/no-go gate.**
-3. Add `wasm-build.yml` (Emscripten SDK) producing the `.wasm` + glue as artifacts
-   consumed by `web-deploy.yml`. Keep `build_cmake.yml` as-is.
-
-The sectional-design app (Phases 0–2) must remain fully usable without WASM.
-The Emscripten spike likely needs network access for `emsdk` — flag it if the
-environment's network policy blocks it.
+## Remaining / deferred
+- **Sections catalog** — reconcile the flat per-member `design` blob with a shared
+  project `sections[]` catalog + member `sectionRef` (the `MemberSection` seam is
+  extracted; the persisted-catalog migration is the remaining step).
+- **Playwright e2e** — import → design → save/load flow coverage (spec §3/§13);
+  only Vitest unit/parity tests exist today.
+- **Refined time-step prestress losses** — deferred by design (v1 uses PCI
+  lump-sum); a dedicated, reference-validated effort when wanted.
+- Prestress-loss relaxation C-table is flagged in-code "verify against your PCI
+  edition" (`designChecks/prestressLosses.ts`).

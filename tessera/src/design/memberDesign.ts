@@ -83,6 +83,9 @@ export const MemberDesignSchema = z.object({
   L: z.number().positive().default(30),
   superDead: z.number().nonnegative().default(0.3),
   live: z.number().nonnegative().default(0.5),
+  // Lateral load categories (klf) feeding the ACI §5.3 combinations (U3–U7); may be ±.
+  wind: z.number().default(0),
+  seismic: z.number().default(0),
   // Reinforcement
   layers: z
     .array(ReinfRowSchema)
@@ -234,7 +237,12 @@ export function designToInput(d: MemberDesignInput): AnalyzeMemberInput {
     lambda: d.lambda,
     layers,
     L: d.L * 12, // ft → in
-    loads: { superDead: d.superDead / 12, live: d.live / 12 }, // kip/ft → kip/in
+    loads: {
+      superDead: d.superDead / 12,
+      live: d.live / 12,
+      wind: d.wind / 12,
+      seismic: d.seismic / 12,
+    }, // kip/ft → kip/in
     topping: toppingOf(d) ?? undefined,
     design: {
       serviceClass: d.serviceClass,

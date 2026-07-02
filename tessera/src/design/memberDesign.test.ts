@@ -42,6 +42,20 @@ describe('memberDesign', () => {
     expect(input.section.bw).toBe(14);
     expect(input.section.hf).toBe(30);
   });
+
+  it('maps wind/seismic (klf → kip/in) into the load set', () => {
+    const input = designToInput({ ...defaultMemberDesign(), wind: 1.2, seismic: 0.6 });
+    expect(input.loads.wind).toBeCloseTo(0.1, 9);
+    expect(input.loads.seismic).toBeCloseTo(0.05, 9);
+  });
+
+  it('a dominant wind load selects a wind combination and raises Mu', () => {
+    const base = { ...defaultMemberDesign(), superDead: 0.1, live: 0.1 };
+    const calm = analyzeMember(designToInput(base));
+    const windy = analyzeMember(designToInput({ ...base, wind: 5 }));
+    expect(windy.demands.Mu).toBeGreaterThan(calm.demands.Mu);
+    expect(windy.demands.combo).toBe('U4'); // 1.2D + 1.0W + 1.0L (§5.3.1(d))
+  });
 });
 
 // Sections reconciliation, step 1: the geometry is extracted into a MemberSection

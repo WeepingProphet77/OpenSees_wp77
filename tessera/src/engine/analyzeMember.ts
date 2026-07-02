@@ -53,7 +53,7 @@ export interface AnalyzeMemberInput {
   /** Span (in). */
   L: number;
   /** Uniform service loads excluding self-weight (kip/in). */
-  loads: { dead?: number; superDead?: number; live?: number };
+  loads: { dead?: number; superDead?: number; live?: number; wind?: number; seismic?: number };
   design?: {
     serviceClass?: 'U' | 'T';
     endRegion?: boolean;
@@ -141,6 +141,8 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
   const wDead = loads.dead ?? 0;
   const wSuper = loads.superDead ?? 0;
   const wLive = loads.live ?? 0;
+  const wWind = loads.wind ?? 0;
+  const wSeismic = loads.seismic ?? 0;
 
   // Service moments at mid-span.
   const Mg = uniformMidspanMoment(wSelf, L);
@@ -150,7 +152,7 @@ export function analyzeMember(input: AnalyzeMemberInput): MemberAnalysis {
   // Strength demands via the governing ACI 318-19 §5.3 combination. Uniform
   // loads scale moment/shear linearly, so the governing factored line load is
   // the governing factored moment/shear.
-  const gov = governingStrength({ D: wSelf + wDead + wSuper, L: wLive });
+  const gov = governingStrength({ D: wSelf + wDead + wSuper, L: wLive, W: wWind, E: wSeismic });
   const wu = gov.value;
   const Mu = uniformMidspanMoment(wu, L);
 
